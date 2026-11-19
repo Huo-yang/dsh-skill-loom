@@ -154,7 +154,7 @@ export function detectAnchorDrift(role, repository) {
  * @param {(path: string) => boolean} [exists] - filesystem probe; omit to disable confirmation.
  * @returns {{ missing: Array<{name: string, path: string}>, unloaded: Array<{name: string, path: string}>, unconfirmed: string[] }}
  */
-export function confirmMissing(role, repository, exists) {
+export function explainMissing(role, repository, exists) {
   const index = normalizeRepository(repository)
   const anchors = role?.anchors ?? {}
   const red = [...requiresClosure(role)].filter(name => !index.has(name))
@@ -488,7 +488,7 @@ export function planRole(role, repository, options = {}) {
     cycles: findCycles(role),
     anchors: captureAnchors(role, index),
     drift: detectAnchorDrift(role, index),
-    missing: confirmMissing(role, index, options.exists),
+    missing: explainMissing(role, index, options.exists),
     levels: Object.fromEntries([...levels].sort(([a], [b]) => a.localeCompare(b))),
     catalogChars,
     issues: validateRole(role, index, options),

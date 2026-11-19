@@ -4,7 +4,7 @@ import test from 'node:test'
 import {
   captureAnchors,
   computeHealth,
-  confirmMissing,
+  explainMissing,
   detectAnchorDrift,
   findCycles,
   isRoleNameTaken,
@@ -322,7 +322,7 @@ test('a deleted file confirms the skill is gone', () => {
     members: ['a'],
     anchors: { a: { path: '/gone/a/SKILL.md' } },
   })
-  const result = confirmMissing(graph, entries({}), () => false)
+  const result = explainMissing(graph, entries({}), () => false)
   assert.deepEqual(result.missing, [{ name: 'a', path: '/gone/a/SKILL.md' }])
   assert.deepEqual(result.unloaded, [])
   assert.deepEqual(result.unconfirmed, [])
@@ -333,14 +333,14 @@ test('a file still on disk is reported as unloaded, not missing', () => {
     members: ['a'],
     anchors: { a: { path: '/still/a/SKILL.md' } },
   })
-  const result = confirmMissing(graph, entries({}), path => path === '/still/a/SKILL.md')
+  const result = explainMissing(graph, entries({}), path => path === '/still/a/SKILL.md')
   assert.deepEqual(result.missing, [])
   assert.deepEqual(result.unloaded, [{ name: 'a', path: '/still/a/SKILL.md' }])
 })
 
 test('without an anchor or a probe the state stays unconfirmed', () => {
   const graph = role({ members: ['virtual'] })
-  const result = confirmMissing(graph, entries({}), () => false)
+  const result = explainMissing(graph, entries({}), () => false)
   assert.deepEqual(result.unconfirmed, ['virtual'])
   assert.deepEqual(result.missing, [])
 })
@@ -350,7 +350,7 @@ test('a resolved skill is never reported as missing, even if the anchor moved', 
     members: ['a'],
     anchors: { a: { path: '/old/a/SKILL.md' } },
   })
-  const result = confirmMissing(graph, entries({ a: { path: '/new/a/SKILL.md' } }), () => false)
+  const result = explainMissing(graph, entries({ a: { path: '/new/a/SKILL.md' } }), () => false)
   assert.deepEqual(result, { missing: [], unloaded: [], unconfirmed: [] })
 })
 
