@@ -137,6 +137,42 @@ export function detectAnchorDrift(role, repository) {
   return drift
 }
 
+/**
+ * Explain every red node using its anchor.
+ *
+ * The name decides availability; the anchor only decides *why* it is gone. Three
+ * outcomes, deliberately kept apart:
+ *
+ * - `missing` — the name does not resolve and the anchored file is gone too.
+ * - `unloaded` — the name does not resolve but the file is still on disk: the
+ *   skill root moved, or frontmatter made the provider drop it. Red, but a very
+ *   different repair.
+ * - `unconfirmed` — nothing to check against (virtual provider skill, or a role
+ *   saved before anchors existed). Never reported as missing on a guess.
+ * @param {object} role - role graph.
+ * @param {Map<string, object> | Iterable<string>} repository - available skills.
+ * @param {(path: string) => boolean} [exists] - filesystem probe; omit to disable confirmation.
+ * @returns {{ missing: Array<{name: string, path: string}>, unloaded: Array<{name: string, path: string}>, unconfirmed: string[] }}
+ */
+export function confirmMissing(role, repository, exists) {
+  const index = normalizeRepository(repository)
+  const anchors = role?.anchors ?? {}
+  const red = [...requiresClosure(role)].filter(name => !index.has(name))
+  const missing = []
+  const unloaded = []
+  const unconfirmed = []
+  for (const name of red) {
+    const path = anchors[name]?.path
+    if (typeof path !== 'string' || typeof exists !== 'function') {
+      unconfirmed.push(name)
+      continue
+    }
+    if (exists(path)) unloaded.push({ name, path })
+    else missing.push({ name, path })
+  }
+  return { missing, unloaded, unconfirmed }
+}
+
 /** Normalize the repository view into a name -> { description } map. */
 function normalizeRepository(repository) {
   if (repository instanceof Map) {
@@ -369,14 +405,26 @@ export function validateRole(role, repository, options = {}) {
 
   const closure = requiresClosure(role)
   const members = new Set(role?.members ?? [])
+  const exists = options.exists
+  const anchors = role?.anchors ?? {}
 
   for (const name of closure) {
-    if (members.has(name)) continue
     if (index.has(name)) {
-      issues.push({ code: 'auto-fill', severity: 'info', message: `"${name}" is required but not a member; it will be added` })
-    } else {
-      issues.push({ code: 'unresolved-dependency', severity: 'warning', message: `"${name}" is required but absent from the repository; it renders red and its direct dependents gray` })
+      if (!members.has(name)) {
+        issues.push({ code: 'auto-fill', severity: 'info', message: `"${name}" is required but not a member; it will be added` })
+      }
+      continue
     }
+    const path = anchors[name]?.path
+    if (typeof path === 'string' && typeof exists === 'function') {
+      if (exists(path)) {
+        issues.push({ code: 'missing-but-present', severity: 'warning', message: `"${name}" does not resolve but its file is still on disk at ${path}; check the skill roots or its frontmatter` })
+      } else {
+        issues.push({ code: 'missing-confirmed', severity: 'warning', message: `"${name}" no longer exists at ${path}` })
+      }
+      continue
+    }
+    issues.push({ code: 'unresolved-dependency', severity: 'warning', message: `"${name}" is absent from the repository; it renders red and its dependents gray` })
   }
 
   const conflictPairs = []
@@ -440,6 +488,7 @@ export function planRole(role, repository, options = {}) {
     cycles: findCycles(role),
     anchors: captureAnchors(role, index),
     drift: detectAnchorDrift(role, index),
+    missing: confirmMissing(role, index, options.exists),
     levels: Object.fromEntries([...levels].sort(([a], [b]) => a.localeCompare(b))),
     catalogChars,
     issues: validateRole(role, index, options),

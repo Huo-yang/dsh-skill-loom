@@ -4,6 +4,7 @@ import test from 'node:test'
 import {
   captureAnchors,
   computeHealth,
+  confirmMissing,
   detectAnchorDrift,
   findCycles,
   isRoleNameTaken,
@@ -313,4 +314,58 @@ test('anchor drift surfaces as a warning, not an error', () => {
   assert.ok(drift)
   assert.equal(drift.severity, 'warning')
   assert.ok(!issues.some(issue => issue.severity === 'error'))
+})
+// --- missing confirmation ------------------------------------------------
+
+test('a deleted file confirms the skill is gone', () => {
+  const graph = role({
+    members: ['a'],
+    anchors: { a: { path: '/gone/a/SKILL.md' } },
+  })
+  const result = confirmMissing(graph, entries({}), () => false)
+  assert.deepEqual(result.missing, [{ name: 'a', path: '/gone/a/SKILL.md' }])
+  assert.deepEqual(result.unloaded, [])
+  assert.deepEqual(result.unconfirmed, [])
+})
+
+test('a file still on disk is reported as unloaded, not missing', () => {
+  const graph = role({
+    members: ['a'],
+    anchors: { a: { path: '/still/a/SKILL.md' } },
+  })
+  const result = confirmMissing(graph, entries({}), path => path === '/still/a/SKILL.md')
+  assert.deepEqual(result.missing, [])
+  assert.deepEqual(result.unloaded, [{ name: 'a', path: '/still/a/SKILL.md' }])
+})
+
+test('without an anchor or a probe the state stays unconfirmed', () => {
+  const graph = role({ members: ['virtual'] })
+  const result = confirmMissing(graph, entries({}), () => false)
+  assert.deepEqual(result.unconfirmed, ['virtual'])
+  assert.deepEqual(result.missing, [])
+})
+
+test('a resolved skill is never reported as missing, even if the anchor moved', () => {
+  const graph = role({
+    members: ['a'],
+    anchors: { a: { path: '/old/a/SKILL.md' } },
+  })
+  const result = confirmMissing(graph, entries({ a: { path: '/new/a/SKILL.md' } }), () => false)
+  assert.deepEqual(result, { missing: [], unloaded: [], unconfirmed: [] })
+})
+
+test('validateRole distinguishes a confirmed loss from an unloaded file', () => {
+  const base = role({ members: ['a'], anchors: { a: { path: '/x/a/SKILL.md' } } })
+  const gone = validateRole(base, entries({}), { exists: () => false }).map(i => i.code)
+  const present = validateRole(base, entries({}), { exists: () => true }).map(i => i.code)
+  assert.ok(gone.includes('missing-confirmed'))
+  assert.ok(present.includes('missing-but-present'))
+  assert.ok(!present.includes('missing-confirmed'))
+})
+
+test('planRole carries the missing classification', () => {
+  const graph = role({ members: ['a'], anchors: { a: { path: '/x/a/SKILL.md' } } })
+  const result = planRole(graph, entries({}), { exists: () => true })
+  assert.deepEqual(result.missing.unloaded, [{ name: 'a', path: '/x/a/SKILL.md' }])
+  assert.deepEqual(result.red, ['a'])
 })
