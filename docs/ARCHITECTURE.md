@@ -1,6 +1,6 @@
 # dsh-skill-loom 架构设计
 
-> 状态：**v1.6（设计阶段，M1 进行中：纯图逻辑已落地，25 条测试通过）**
+> 状态：**v1.7（设计阶段，M1 进行中：图模型与存储已落地，43 条测试通过）**
 > 设计核对版本：DSH Web `0.2.2-rc.5`
 > 一句话：**一个角色 = 一张图 = 一个文件**；技能是节点，连线是依赖；agent 与人共用同一张图的读写面。
 
@@ -32,6 +32,7 @@
 | D20 | 保存时把整个 `requires` 闭包补进 `members`；解析不到的节点保留为红点 | v1.4 |
 | D21 | 运行时集合 = 闭包 − 红 − 灰；不做"部分可用"的中间态 | v1.6 |
 | D22 | 灰沿 `requires` 反向**传递**；灰必须由红派生，无红必无灰（代码断言） | v1.6 |
+| D23 | 技能锚点仅作建议：不参与解析、跨机器不保证有效、导出时剥离 | v1.7 |
 
 ### 暂不做（明确排除，防止范围蔓延）
 
@@ -119,6 +120,11 @@
 
   "conflicts": [["concise-writing", "verbose-report"]],
 
+  "anchors": {
+    "code-review": { "path": "/home/u/.agents/skills/code-review/SKILL.md", "source": "user-agents", "provider": "filesystem" },
+    "git-workflow": { "path": "/home/u/.dsh/skills/git-workflow/SKILL.md", "source": "user-dsh", "provider": "filesystem" }
+  },
+
   "layout": { "code-review": { "x": 120, "y": 40 } },
 
   "snapshot": {
@@ -138,6 +144,7 @@
 | `members` | 图的根集合；保存时被补齐为整个 `requires` 闭包（D20） |
 | `edges` | 技能 → 技能的 `requires` 边；`why` 为人可读的必要性说明 |
 | `conflicts` | 对称互斥对，不入 `edges`（有向边表达对称关系会产生歧义） |
+| `anchors` | 技能在保存时的来源锚点（`path` / `source` / `provider`）。**仅建议，永不参与解析**（D23）；用于解释红点、发现重装漂移；导出时剥离 |
 | `layout` | 仅保存用户手动拖过的节点坐标；缺省走自动布局 |
 | `snapshot` | 保存时冻结的运行时集合（红点已扣除），用于漂移检测与"我当初是什么样" |
 
@@ -217,6 +224,7 @@ topoLevel(s, R) = 1 + max(topoLevel(d, R))   over d ∈ requires(s) ∩ R
 | 引用不存在的技能 | 允许（红点来源），写入结果带警告 |
 | 同一条边在其他角色中也存在 | 仅警告（§3.4） |
 | `why` 缺失 | agent 建边 → 拒绝；人手建边 → 允许 |
+| 锚点漂移（技能被重装到别的路径 / 换了来源） | 仅警告，不阻断（D23） |
 
 ---
 
@@ -332,7 +340,7 @@ role_graph({
 | `add_members` / `remove_members` | **增量**维护成员（D15）：不需要先读现状，一次调用完成 |
 | `link` / `unlink` | 加删 `requires` 边；agent 建边**必须**带 `why`（≤80 字） |
 | `duplicate` | 复制一个角色连同整张图（§3.4 的主要创建方式） |
-| `export` / `import` | 导出 / 导入单角色图；默认 JSON（无损、无需解析器），可指定 `yaml` 以便手工编辑与 code review |
+| `export` / `import` | 导出 / 导入单角色图；默认 JSON，可指定 `yaml`；导出时剥离 `anchors`（D23） |
 
 **为什么是增量而非整体替换**：整体替换要求 agent 先读当前成员、算差集、再提交——多一次往返，还容易抄错；增量原语不需要知道现状，误操作面也更小。D15 明确**不设"只增不减"限制**，那只会把工作转嫁给人。
 

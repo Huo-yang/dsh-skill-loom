@@ -85,6 +85,58 @@ export function isRoleNameTaken(roles, name, exceptId) {
   return (roles ?? []).some(role => role.id !== exceptId && roleNameKey(role.name) === key)
 }
 
+/**
+ * Record where each referenced skill resolved from, at save time.
+ *
+ * Skills are installed into several roots (project, custom, user, bundled) or
+ * supplied by a provider with no file at all, so a name alone cannot answer
+ * "which copy did this role mean" after a reinstall. The anchor answers that,
+ * but it is **advisory only**: resolution always goes through the skill name.
+ * Anchors are machine-specific and must be stripped on export.
+ * @param {object} role - role graph.
+ * @param {Map<string, object> | Iterable<string>} repository - available skills.
+ * @returns {Record<string, { path?: string, source?: string, provider?: string }>} anchors.
+ */
+export function captureAnchors(role, repository) {
+  const index = normalizeRepository(repository)
+  const anchors = {}
+  for (const name of referencedNames(role)) {
+    const entry = index.get(name)
+    if (entry === undefined) continue
+    const anchor = {}
+    if (typeof entry.path === 'string') anchor.path = entry.path
+    if (typeof entry.source === 'string') anchor.source = entry.source
+    if (typeof entry.provider === 'string') anchor.provider = entry.provider
+    if (Object.keys(anchor).length > 0) anchors[name] = anchor
+  }
+  return anchors
+}
+
+/**
+ * Compare recorded anchors with the current repository.
+ *
+ * Only resolved skills are compared: a skill that vanished is red, not drift.
+ * @param {object} role - role graph.
+ * @param {Map<string, object> | Iterable<string>} repository - available skills.
+ * @returns {Array<{ name: string, kind: 'path-changed' | 'source-changed', from: string, to: string }>} drift.
+ */
+export function detectAnchorDrift(role, repository) {
+  const index = normalizeRepository(repository)
+  const anchors = role?.anchors ?? {}
+  const drift = []
+  for (const [name, anchor] of Object.entries(anchors)) {
+    const entry = index.get(name)
+    if (entry === undefined) continue
+    if (typeof anchor?.path === 'string' && typeof entry.path === 'string' && anchor.path !== entry.path) {
+      drift.push({ name, kind: 'path-changed', from: anchor.path, to: entry.path })
+    }
+    if (typeof anchor?.source === 'string' && typeof entry.source === 'string' && anchor.source !== entry.source) {
+      drift.push({ name, kind: 'source-changed', from: anchor.source, to: entry.source })
+    }
+  }
+  return drift
+}
+
 /** Normalize the repository view into a name -> { description } map. */
 function normalizeRepository(repository) {
   if (repository instanceof Map) {
@@ -337,6 +389,13 @@ export function validateRole(role, repository, options = {}) {
     issues.push({ code: 'conflict', severity: 'error', message: `"${a}" and "${b}" conflict but are both reachable` })
   }
 
+  for (const item of detectAnchorDrift(role, index)) {
+    const detail = item.kind === 'path-changed'
+      ? `moved from ${item.from} to ${item.to}`
+      : `now resolves from source ${item.to} instead of ${item.from}`
+    issues.push({ code: 'anchor-drift', severity: 'warning', message: `"${item.name}" ${detail}` })
+  }
+
   if (source === 'agent') {
     for (const edge of role?.edges ?? []) {
       if (typeof edge?.why === 'string' && edge.why.trim() !== '') continue
@@ -379,6 +438,8 @@ export function planRole(role, repository, options = {}) {
     toAdd: [...closure].filter(name => !members.includes(name)),
     ...health,
     cycles: findCycles(role),
+    anchors: captureAnchors(role, index),
+    drift: detectAnchorDrift(role, index),
     levels: Object.fromEntries([...levels].sort(([a], [b]) => a.localeCompare(b))),
     catalogChars,
     issues: validateRole(role, index, options),

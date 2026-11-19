@@ -2,7 +2,9 @@ import assert from 'node:assert/strict'
 import test from 'node:test'
 
 import {
+  captureAnchors,
   computeHealth,
+  detectAnchorDrift,
   findCycles,
   isRoleNameTaken,
   newRoleId,
@@ -264,4 +266,51 @@ test('planRole never pulls in a dependent that is not a member', () => {
   const result = planRole(graph, repo('a', 'b'))
   assert.deepEqual(result.toAdd, [])
   assert.deepEqual(result.runtime, ['b'])
+})
+
+// --- anchors -------------------------------------------------------------
+
+const entries = map => new Map(Object.entries(map).map(([name, value]) => [name, value]))
+
+test('captureAnchors records where each referenced skill resolved from', () => {
+  const graph = role({ members: ['a', 'b'], edges: [{ from: 'a', to: 'b', why: 'x' }] })
+  const repository = entries({
+    a: { description: 'A', path: '/home/u/.dsh/skills/a/SKILL.md', source: 'user-dsh', provider: 'filesystem' },
+    b: { description: 'B', provider: 'virtual-plugin' },
+  })
+  assert.deepEqual(captureAnchors(graph, repository), {
+    a: { path: '/home/u/.dsh/skills/a/SKILL.md', source: 'user-dsh', provider: 'filesystem' },
+    b: { provider: 'virtual-plugin' },
+  })
+})
+
+test('captureAnchors skips skills the repository cannot resolve', () => {
+  const graph = role({ members: ['a', 'gone'] })
+  assert.deepEqual(captureAnchors(graph, entries({ a: { path: '/x' } })), { a: { path: '/x' } })
+})
+
+test('a reinstalled skill is reported as drift, not as missing', () => {
+  const graph = role({
+    members: ['a'],
+    anchors: { a: { path: '/old/a/SKILL.md', source: 'user-dsh' } },
+  })
+  const drift = detectAnchorDrift(graph, entries({ a: { path: '/new/a/SKILL.md', source: 'project-dsh' } }))
+  assert.deepEqual(drift, [
+    { name: 'a', kind: 'path-changed', from: '/old/a/SKILL.md', to: '/new/a/SKILL.md' },
+    { name: 'a', kind: 'source-changed', from: 'user-dsh', to: 'project-dsh' },
+  ])
+})
+
+test('a vanished skill is red, never drift', () => {
+  const graph = role({ members: ['a'], anchors: { a: { path: '/old/a/SKILL.md' } } })
+  assert.deepEqual(detectAnchorDrift(graph, entries({})), [])
+})
+
+test('anchor drift surfaces as a warning, not an error', () => {
+  const graph = role({ members: ['a'], anchors: { a: { path: '/old/a/SKILL.md' } } })
+  const issues = validateRole(graph, entries({ a: { path: '/new/a/SKILL.md' } }))
+  const drift = issues.find(issue => issue.code === 'anchor-drift')
+  assert.ok(drift)
+  assert.equal(drift.severity, 'warning')
+  assert.ok(!issues.some(issue => issue.severity === 'error'))
 })
