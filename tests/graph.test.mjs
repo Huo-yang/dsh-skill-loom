@@ -137,7 +137,7 @@ test('a fully resolved role has an empty red and gray set', () => {
   assert.deepEqual(health.gray, [])
 })
 
-test('only the direct dependent turns gray, and the transitive one stays usable', () => {
+test('a missing leaf cascades: every dependent turns gray and leaves the runtime', () => {
   const graph = role({
     members: ['a', 'b', 'c'],
     edges: [
@@ -147,11 +147,11 @@ test('only the direct dependent turns gray, and the transitive one stays usable'
   })
   const health = computeHealth(graph, repo('a', 'b'))
   assert.deepEqual(health.red, ['c'])
-  assert.deepEqual(health.gray.map(row => row.name), ['b'])
-  assert.deepEqual(health.runtime, ['a', 'b'])
+  assert.deepEqual(health.gray.map(row => row.name).sort(), ['a', 'b'])
+  assert.deepEqual(health.runtime, [])
 })
 
-test('a gray row names the exact edge that caused it', () => {
+test('a gray row names the full path to the missing skill', () => {
   const graph = role({
     members: ['a', 'b', 'c'],
     edges: [
@@ -160,8 +160,10 @@ test('a gray row names the exact edge that caused it', () => {
     ],
   })
   const health = computeHealth(graph, repo('a', 'b'))
-  assert.equal(health.gray.length, 1)
-  assert.deepEqual(health.gray[0], { name: 'b', path: ['b', 'c'] })
+  const b = health.gray.find(row => row.name === 'b')
+  const a = health.gray.find(row => row.name === 'a')
+  assert.deepEqual(b.path, ['b', 'c'])
+  assert.deepEqual(a.path, ['a', 'b', 'c'])
 })
 
 test('no red means no gray, even with a long chain', () => {
@@ -187,7 +189,7 @@ test('an unrelated member is untouched when another branch is broken', () => {
   const health = computeHealth(graph, repo('a', 'z'))
   assert.deepEqual(health.red, ['b'])
   assert.deepEqual(health.gray.map(row => row.name), ['a'])
-  assert.deepEqual(health.runtime, ['a', 'z'])
+  assert.deepEqual(health.runtime, ['z'])
 })
 
 test('non-member edge endpoints never become gray', () => {

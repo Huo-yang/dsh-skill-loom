@@ -224,14 +224,13 @@ export function topoLevels(role) {
  * Three states, and the rule that ties them together:
  *
  * - **red** — the graph references it but the repository cannot resolve it.
- * - **gray** — it exists, but a *direct* dependency of it is red. Display-only:
- *   it marks "this skill's premise is gone", it does not remove it.
- * - **runtime** — every resolved node in the closure. Nothing is excluded for
- *   having a broken dependency: a missing skill cannot be used because it does
- *   not exist, not because we decided to cascade.
+ * - **gray** — it exists, but something it depends on is red or gray. A gray
+ *   skill is *effectively missing*: its premise is gone, so it is excluded
+ *   together with the red nodes it descends from ("连坐").
+ * - **runtime** — the closure minus red and gray; this is what a session sees.
  *
  * Invariant: gray is derived from red, so no red means no gray. A gray row
- * always carries the direct edge that produced it.
+ * always carries the path that reaches the red node.
  * @param {object} role - role graph.
  * @param {Map<string, object> | Iterable<string>} repository - available skills.
  * @returns {{ runtime: string[], red: string[], gray: Array<{ name: string, path: string[] }> }}
@@ -247,22 +246,41 @@ export function computeHealth(role, repository) {
   const red = [...scope].filter(name => !index.has(name))
   const redSet = new Set(red)
 
-  const gray = []
-  for (const name of scope) {
-    if (redSet.has(name)) continue
-    for (const dependency of requires.get(name) ?? []) {
-      if (!redSet.has(dependency)) continue
-      gray.push({ name, path: [name, dependency] })
-      break
+  const dependents = new Map()
+  for (const [from, targets] of requires) {
+    for (const target of targets) {
+      const list = dependents.get(target) ?? []
+      list.push(from)
+      dependents.set(target, list)
     }
   }
 
-  if (gray.length > 0 && red.length === 0) {
+  const gray = new Map()
+  const visited = new Set(red)
+  const queue = red.map(name => [name])
+  while (queue.length > 0) {
+    const path = queue.shift()
+    // A path is [dependent, ...pathToRed], so the node being expanded is its head.
+    const node = path[0]
+    for (const dependent of dependents.get(node) ?? []) {
+      if (visited.has(dependent)) continue
+      visited.add(dependent)
+      const nextPath = [dependent, ...path]
+      gray.set(dependent, nextPath)
+      queue.push(nextPath)
+    }
+  }
+
+  if (gray.size > 0 && red.length === 0) {
     throw new Error('invariant violated: gray without red')
   }
 
-  const runtime = [...scope].filter(name => !redSet.has(name))
-  return { runtime, red, gray }
+  const runtime = [...scope].filter(name => !redSet.has(name) && !gray.has(name))
+  return {
+    runtime,
+    red,
+    gray: [...gray].map(([name, path]) => ({ name, path })),
+  }
 }
 
 /**
