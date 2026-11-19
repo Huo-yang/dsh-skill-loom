@@ -219,15 +219,22 @@ export function topoLevels(role) {
 }
 
 /**
- * Resolve the runtime view of a role against the repository.
+ * Resolve a role against the repository.
  *
- * - **red** — a member the repository cannot resolve.
- * - **gray** — a member that is not red itself but can reach a red node through
- *   `requires` edges. Excluded from the runtime set by design.
- * - **healthy** — members minus red and gray; this is what a session sees.
+ * Three states, and the rule that ties them together:
+ *
+ * - **red** — the graph references it but the repository cannot resolve it.
+ * - **gray** — it exists, but a *direct* dependency of it is red. Display-only:
+ *   it marks "this skill's premise is gone", it does not remove it.
+ * - **runtime** — every resolved node in the closure. Nothing is excluded for
+ *   having a broken dependency: a missing skill cannot be used because it does
+ *   not exist, not because we decided to cascade.
+ *
+ * Invariant: gray is derived from red, so no red means no gray. A gray row
+ * always carries the direct edge that produced it.
  * @param {object} role - role graph.
  * @param {Map<string, object> | Iterable<string>} repository - available skills.
- * @returns {{ healthy: string[], red: string[], gray: Array<{ name: string, path: string[] }> }}
+ * @returns {{ runtime: string[], red: string[], gray: Array<{ name: string, path: string[] }> }}
  */
 export function computeHealth(role, repository) {
   const index = normalizeRepository(repository)
@@ -240,37 +247,22 @@ export function computeHealth(role, repository) {
   const red = [...scope].filter(name => !index.has(name))
   const redSet = new Set(red)
 
-  const dependents = new Map()
-  for (const [from, targets] of requires) {
-    for (const target of targets) {
-      const list = dependents.get(target) ?? []
-      list.push(from)
-      dependents.set(target, list)
+  const gray = []
+  for (const name of scope) {
+    if (redSet.has(name)) continue
+    for (const dependency of requires.get(name) ?? []) {
+      if (!redSet.has(dependency)) continue
+      gray.push({ name, path: [name, dependency] })
+      break
     }
   }
 
-  const gray = new Map()
-  const visited = new Set(red)
-  const queue = red.map(name => [name])
-  while (queue.length > 0) {
-    const path = queue.shift()
-    // A path is [dependent, ...pathToRed], so the node being expanded is its head.
-    const node = path[0]
-    for (const dependent of dependents.get(node) ?? []) {
-      if (visited.has(dependent)) continue
-      visited.add(dependent)
-      const nextPath = [dependent, ...path]
-      gray.set(dependent, nextPath)
-      queue.push(nextPath)
-    }
+  if (gray.length > 0 && red.length === 0) {
+    throw new Error('invariant violated: gray without red')
   }
 
-  const healthy = [...scope].filter(name => !redSet.has(name) && !gray.has(name))
-  return {
-    healthy,
-    red,
-    gray: [...gray].map(([name, path]) => ({ name, path })),
-  }
+  const runtime = [...scope].filter(name => !redSet.has(name))
+  return { runtime, red, gray }
 }
 
 /**
@@ -313,7 +305,7 @@ export function validateRole(role, repository, options = {}) {
     if (index.has(name)) {
       issues.push({ code: 'auto-fill', severity: 'info', message: `"${name}" is required but not a member; it will be added` })
     } else {
-      issues.push({ code: 'unresolved-dependency', severity: 'warning', message: `"${name}" is required but absent from the repository; dependents will be excluded at runtime` })
+      issues.push({ code: 'unresolved-dependency', severity: 'warning', message: `"${name}" is required but absent from the repository; it renders red and its direct dependents gray` })
     }
   }
 
@@ -358,7 +350,7 @@ export function planRole(role, repository, options = {}) {
   const levels = topoLevels(role)
 
   let catalogChars = 0
-  for (const name of health.healthy) {
+  for (const name of health.runtime) {
     const entry = index.get(name) ?? {}
     catalogChars += name.length + (typeof entry.description === 'string' ? entry.description.length : 0)
   }

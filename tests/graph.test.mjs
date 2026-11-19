@@ -129,15 +129,15 @@ test('topoLevels puts leaves at zero and consumers above their dependencies', ()
   assert.equal(levels.get('a'), 2)
 })
 
-test('a fully resolved role is entirely healthy', () => {
+test('a fully resolved role has an empty red and gray set', () => {
   const graph = role({ members: ['a', 'b'], edges: [{ from: 'a', to: 'b' }] })
   const health = computeHealth(graph, repo('a', 'b'))
-  assert.deepEqual(health.healthy, ['a', 'b'])
+  assert.deepEqual(health.runtime, ['a', 'b'])
   assert.deepEqual(health.red, [])
   assert.deepEqual(health.gray, [])
 })
 
-test('a missing leaf turns its whole downstream gray and leaves nothing healthy', () => {
+test('only the direct dependent turns gray, and the transitive one stays usable', () => {
   const graph = role({
     members: ['a', 'b', 'c'],
     edges: [
@@ -147,11 +147,11 @@ test('a missing leaf turns its whole downstream gray and leaves nothing healthy'
   })
   const health = computeHealth(graph, repo('a', 'b'))
   assert.deepEqual(health.red, ['c'])
-  assert.deepEqual(health.healthy, [])
-  assert.deepEqual(health.gray.map(row => row.name).sort(), ['a', 'b'])
-}) 
+  assert.deepEqual(health.gray.map(row => row.name), ['b'])
+  assert.deepEqual(health.runtime, ['a', 'b'])
+})
 
-test('gray rows explain themselves with the path to the missing skill', () => {
+test('a gray row names the exact edge that caused it', () => {
   const graph = role({
     members: ['a', 'b', 'c'],
     edges: [
@@ -160,30 +160,42 @@ test('gray rows explain themselves with the path to the missing skill', () => {
     ],
   })
   const health = computeHealth(graph, repo('a', 'b'))
-  const b = health.gray.find(row => row.name === 'b')
-  const a = health.gray.find(row => row.name === 'a')
-  assert.deepEqual(b.path, ['b', 'c'])
-  assert.deepEqual(a.path, ['a', 'b', 'c'])
+  assert.equal(health.gray.length, 1)
+  assert.deepEqual(health.gray[0], { name: 'b', path: ['b', 'c'] })
 })
 
-test('an unrelated member stays healthy when another branch is broken', () => {
+test('no red means no gray, even with a long chain', () => {
+  const graph = role({
+    members: ['a', 'b', 'c', 'd'],
+    edges: [
+      { from: 'a', to: 'b' },
+      { from: 'b', to: 'c' },
+      { from: 'c', to: 'd' },
+    ],
+  })
+  const health = computeHealth(graph, repo('a', 'b', 'c', 'd'))
+  assert.deepEqual(health.red, [])
+  assert.deepEqual(health.gray, [])
+  assert.equal(health.runtime.length, 4)
+})
+
+test('an unrelated member is untouched when another branch is broken', () => {
   const graph = role({
     members: ['a', 'b', 'z'],
     edges: [{ from: 'a', to: 'b' }],
   })
   const health = computeHealth(graph, repo('a', 'z'))
-  assert.deepEqual(health.healthy, ['z'])
   assert.deepEqual(health.red, ['b'])
   assert.deepEqual(health.gray.map(row => row.name), ['a'])
+  assert.deepEqual(health.runtime, ['a', 'z'])
 })
 
 test('non-member edge endpoints never become gray', () => {
   const graph = role({ members: ['a'], edges: [{ from: 'x', to: 'y' }] })
   const health = computeHealth(graph, repo('a'))
   assert.deepEqual(health.gray, [])
-  assert.deepEqual(health.healthy, ['a'])
+  assert.deepEqual(health.runtime, ['a'])
 })
-
 test('validateRole rejects cycles, conflicts and missing whys from an agent', () => {
   const graph = role({
     members: ['a', 'b', 'c'],
@@ -240,7 +252,7 @@ test('planRole reports what a save would add and what the catalog costs', () => 
   })
   const result = planRole(graph, repo('a', 'b'))
   assert.deepEqual(result.toAdd, ['b'])
-  assert.deepEqual(result.healthy.sort(), ['a', 'b'])
+  assert.deepEqual(result.runtime.sort(), ['a', 'b'])
   // name + description for both members
   assert.equal(result.catalogChars, ('a'.length + 'a skill'.length) + ('b'.length + 'b skill'.length))
 })
@@ -249,5 +261,5 @@ test('planRole never pulls in a dependent that is not a member', () => {
   const graph = role({ members: ['b'], edges: [{ from: 'a', to: 'b', why: 'x' }] })
   const result = planRole(graph, repo('a', 'b'))
   assert.deepEqual(result.toAdd, [])
-  assert.deepEqual(result.healthy, ['b'])
+  assert.deepEqual(result.runtime, ['b'])
 })
