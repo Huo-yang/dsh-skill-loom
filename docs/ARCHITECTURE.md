@@ -1,6 +1,6 @@
 # dsh-skill-loom 架构设计
 
-> 状态：**v1.9（设计阶段，M1 进行中：图模型、锚点解释、存储已落地，49 条测试通过）**
+> 状态：**v2.0（M1 代码完成，68 条测试通过；待真实 profile 验证）**
 > 设计核对版本：DSH Web `0.2.2-rc.5`
 > 一句话：**一个角色 = 一张图 = 一个文件**；技能是节点，连线是依赖；agent 与人共用同一张图的读写面。
 
@@ -346,7 +346,7 @@ topoLevel(s, R) = 1 + max(topoLevel(d, R))   over d ∈ requires(s) ∩ R
 role_graph({
   action: 'help' | 'list' | 'show' | 'plan' | 'create'
         | 'set_name' | 'set_persona' | 'add_members' | 'remove_members'
-        | 'link' | 'unlink' | 'duplicate' | 'export' | 'import',
+        | 'link' | 'unlink' | 'duplicate',
   role?: string,
   name?: string,
   persona?: string,
@@ -374,7 +374,7 @@ role_graph({
 | `add_members` / `remove_members` | **增量**维护成员（D15）：不需要先读现状，一次调用完成 |
 | `link` / `unlink` | 加删 `requires` 边；agent 建边**必须**带 `why`（≤80 字） |
 | `duplicate` | 复制一个角色连同整张图（§3.4 的主要创建方式） |
-| `export` / `import` | 导出 / 导入单角色图；默认 JSON，可指定 `yaml`；导出时剥离 `anchors`（D23） |
+| `export` / `import` | （M5）导出 / 导入单角色图；默认 JSON，可指定 `yaml`；导出时剥离 `anchors`（D23） |
 
 **为什么是增量而非整体替换**：整体替换要求 agent 先读当前成员、算差集、再提交——多一次往返，还容易抄错；增量原语不需要知道现状，误操作面也更小。D15 明确**不设"只增不减"限制**，那只会把工作转嫁给人。
 
@@ -520,7 +520,7 @@ agent 路径先于 UI：它不需要前端即可满足"用户只提需求"的主
 
 | 阶段 | 内容 | 验收 |
 |---|---|---|
-| **M1** | 单角色文件存储 + DAG 校验 + `role_graph` 工具（含 `plan`） | 对 agent 说"建个审阅角色"，它自行完成编排，`show` 结果可核对 |
+| **M1** | 单角色文件存储 + DAG 校验 + `role_graph` 工具（含 `plan`） | ✅ 已落地（68 条测试）；**尚未在真实 profile 加载** |
 | **M2** | 运行时应用（角色 → 运行时集合 → 影子 + persona）+ `role_spawn` | 会话 `<available_skills>` 条目数变化可核对；子代理角色可核对 |
 | **M3** | 只读图 UI（观测性） | 红 / 灰 / 空心状态、灰点的直接来源边、漂移视图正确 |
 | **M4** | 可编辑图 UI（操作性） | 拖拽连线、瞬间判环、撤销重做可用 |

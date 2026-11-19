@@ -1,0 +1,4 @@
+# Insert the skill-loom plugin row into the host composition.
+- insert:
+    - id: skill-loom
+      name: dsh-skill-loom
