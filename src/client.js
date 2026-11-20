@@ -490,7 +490,10 @@ window.__ModuleLoader__.load({
                   selected: selectedSkill,
                   onSelect: setSelectedSkill,
                   onCreateEdge: (from, to) => {
+                    // Either direction against the role node means "include this
+                    // skill"; skill-to-skill means "requires".
                     if (from === '__role__') void send('members', { action: 'add_members', add: [to] })
+                    else if (to === '__role__') void send('members', { action: 'add_members', add: [from] })
                     else void send('edges', { action: 'link', from, to })
                   },
                   onBindSession: sessionId => void bindSession(sessionId),
