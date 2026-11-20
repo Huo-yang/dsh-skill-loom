@@ -957,18 +957,8 @@ window.__ModuleLoader__.load({
             h('span', { key: 'g', style: { opacity: 0.5 } }, '⠿'),
             h('span', { key: 't' }, '技能编排'),
             h('button', {
-              key: 'side',
-              style: { ...styles.button(true), marginLeft: 'auto', height: 18, padding: '0 6px' },
-              onPointerDown: event => event.stopPropagation(),
-              title: '在右侧边栏打开，边对话边编排',
-              onClick: () => {
-                if (openTabInSidebar === undefined) setNotice('右侧边栏尚不可用')
-                else openTabInSidebar('skillLoom')
-              },
-            }, '侧栏'),
-            h('button', {
               key: 'toggle',
-              style: { ...styles.button(true), marginLeft: 6, height: 18, padding: '0 6px' },
+              style: { ...styles.button(true), marginLeft: 'auto', height: 18, padding: '0 6px' },
               onPointerDown: event => event.stopPropagation(),
               onClick: () => setCardCollapsed(value => !value),
               title: cardCollapsed ? '展开角色面板' : '收起角色面板',
@@ -1272,7 +1262,6 @@ window.__ModuleLoader__.load({
     // Captured once at apply time: the sidebar service is the only way to hand a
     // file to DSH's own viewer, which is where editing a SKILL.md happens.
     let openInSidebar
-    let openTabInSidebar
 
     // The host route answers with plain application ids, not records.
     function appKey(app) {
@@ -1367,7 +1356,6 @@ window.__ModuleLoader__.load({
 
         whenAvailable('sidebarRight', service => {
           openInSidebar = service.openResource?.bind(service)
-          openTabInSidebar = service.openTab?.bind(service)
         })
       },
     }
