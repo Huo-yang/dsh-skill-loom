@@ -1170,7 +1170,6 @@ window.__ModuleLoader__.load({
       const [personaDraft, setPersonaDraft] = useState(role.persona?.prefix ?? '')
       const [confirmDelete, setConfirmDelete] = useState(false)
       const [pickerOpen, setPickerOpen] = useState(false)
-      const [preview, setPreview] = useState(undefined)
 
       useEffect(() => {
         setPersonaDraft(role.persona?.prefix ?? '')
@@ -1242,25 +1241,14 @@ window.__ModuleLoader__.load({
             key: 'view',
             style: { ...styles.button(true), marginLeft: 0 },
             title: info.path,
-            onClick: async () => {
-              if (preview !== undefined) {
-                setPreview(undefined)
-                return
-              }
-              setPreview('loading')
-              try {
-                const response = await fetch('/skill-loom/skills/' + encodeURIComponent(skillName) + '/content', {
-                  headers: { accept: 'application/json' },
-                })
-                const body = await response.json().catch(() => ({}))
-                if (!response.ok) throw new Error('HTTP ' + response.status)
-                setPreview({ text: String(body.text ?? ''), truncated: body.truncated === true })
-              } catch (cause) {
-                setPreview(undefined)
-                onOpenFailed('读取文件失败：' + String(cause?.message ?? cause))
-              }
+            onClick: () => {
+              // A plain-text route in its own tab: the browser renders the .md as
+              // text, and the panel stays a list of facts.
+              const url = '/skill-loom/skills/' + encodeURIComponent(skillName) + '/content'
+              const opened = globalThis.open(url, '_blank', 'noopener')
+              if (opened === null) onOpenFailed('浏览器阻止了新标签页，请允许本站弹出窗口')
             },
-          }, preview === undefined ? '查看 SKILL.md' : '收起预览'),
+          }, '查看 .md'),
           h('button', {
             key: 'openwith',
             style: { ...styles.button(!appsLoading), marginLeft: 0 },
@@ -1294,21 +1282,7 @@ window.__ModuleLoader__.load({
               }, '▾')
             : null,
         ))
-        if (preview !== undefined) {
-          // The sidebar's text viewer only claims session-workspace files, so a
-          // SKILL.md living outside the workspace is rendered here instead.
-          children.push(h('pre', {
-            key: 'preview',
-            style: {
-              maxHeight: 260, overflow: 'auto', marginTop: 8, padding: 8, borderRadius: 6,
-              fontSize: 11, lineHeight: 1.5, whiteSpace: 'pre-wrap', wordBreak: 'break-word',
-              background: 'var(--dsw-alias-bg-layer-1, #ffffff)',
-              border: '1px solid var(--dsw-alias-border-l2, rgba(127,127,127,.25))',
-            },
-          }, preview === 'loading'
-            ? '读取中…'
-            : preview.text + (preview.truncated ? '\n\n…（已截断）' : '')))
-        }
+
         if (pickerOpen) {
           children.push(h('div', { key: 'applist', style: { ...styles.roleMenu, position: 'static', marginTop: 6, maxHeight: 160 } },
             (apps ?? []).map(app => h('div', {

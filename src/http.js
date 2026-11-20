@@ -33,6 +33,12 @@ const json = (body, status = 200) => new Response(JSON.stringify(body), {
   headers: { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store' },
 })
 
+/** Plain text, for a file the browser should render as-is in its own tab. */
+const plainText = (body, status = 200) => new Response(body, {
+  status,
+  headers: { 'content-type': 'text/plain; charset=utf-8', 'cache-control': 'no-store' },
+})
+
 /**
  * Reject a cross-origin write.
  *
@@ -202,15 +208,8 @@ export function createResource({ store, catalog, exists, mutate, sessions }) {
         const skill = repo.get(skillName)
         if (skill === undefined || typeof skill.path !== 'string') return json({ error: 'skill-not-found' }, 404)
         try {
-          const text = await readFile(skill.path, 'utf8')
-          return json({
-            name: skillName,
-            path: skill.path,
-            // A SKILL.md is small; the cap only stops a pathological file from
-            // filling the panel.
-            text: text.slice(0, 20000),
-            truncated: text.length > 20000,
-          })
+          const body = await readFile(skill.path, 'utf8')
+          return plainText(body)
         } catch {
           return json({ error: 'unreadable' }, 500)
         }
