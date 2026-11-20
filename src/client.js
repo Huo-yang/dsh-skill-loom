@@ -99,6 +99,7 @@ window.__ModuleLoader__.load({
         border: '1px solid var(--dsw-alias-border-l2, rgba(127,127,127,.3))',
         boxShadow: '0 4px 16px rgba(0,0,0,.12)', pointerEvents: 'none', color: 'inherit',
       },
+      historyBar: { position: 'absolute', top: 12, zIndex: 3, display: 'flex', alignItems: 'center' },
       trashZone: {
         position: 'absolute', bottom: 18, left: '50%', transform: 'translateX(-50%)',
         padding: '10px 22px', borderRadius: 10, border: '2px dashed ' + COLORS.red,
@@ -957,6 +958,26 @@ window.__ModuleLoader__.load({
           : notice !== undefined
             ? h('div', { style: styles.toast }, notice)
             : null,
+        // History controls sit on the drawing area itself: they act on the graph,
+        // not on the role's identity, so they do not belong in the role card.
+        roleReady
+          ? h('div', { style: { ...styles.historyBar, right: panelOpen && !compact ? 368 : 12 } }, [
+            h('button', {
+              key: 'undo',
+              style: { ...styles.button(!pending && (detail.history?.undo ?? 0) > 0), marginLeft: 0, height: 24, padding: '0 8px' },
+              disabled: pending || (detail.history?.undo ?? 0) === 0,
+              onClick: () => void stepHistory('undo'),
+              title: '撤销上一步（Ctrl+Z）',
+            }, '↶ 撤销'),
+            h('button', {
+              key: 'redo',
+              style: { ...styles.button(!pending && (detail.history?.redo ?? 0) > 0), marginLeft: 6, height: 24, padding: '0 8px' },
+              disabled: pending || (detail.history?.redo ?? 0) === 0,
+              onClick: () => void stepHistory('redo'),
+              title: '重做（Ctrl+Shift+Z）',
+            }, '↷ 重做'),
+          ])
+          : null,
         removalActive ? h('div', { ref: zoneRef, style: styles.trashZone }, '拖到此处移除') : null,
         h('div', { style: cardStyle }, [
           h('div', {
@@ -971,24 +992,8 @@ window.__ModuleLoader__.load({
             h('span', { key: 'g', style: { opacity: 0.5 } }, '⠿'),
             h('span', { key: 't' }, '技能编排'),
             h('button', {
-              key: 'undo',
-              style: { ...styles.button(!pending && (detail.history?.undo ?? 0) > 0), marginLeft: 'auto', height: 18, padding: '0 6px' },
-              disabled: pending || (detail.history?.undo ?? 0) === 0,
-              onPointerDown: event => event.stopPropagation(),
-              onClick: () => void stepHistory('undo'),
-              title: '撤销上一步（Ctrl+Z）',
-            }, '↶'),
-            h('button', {
-              key: 'redo',
-              style: { ...styles.button(!pending && (detail.history?.redo ?? 0) > 0), marginLeft: 4, height: 18, padding: '0 6px' },
-              disabled: pending || (detail.history?.redo ?? 0) === 0,
-              onPointerDown: event => event.stopPropagation(),
-              onClick: () => void stepHistory('redo'),
-              title: '重做（Ctrl+Shift+Z）',
-            }, '↷'),
-            h('button', {
               key: 'toggle',
-              style: { ...styles.button(true), marginLeft: 8, height: 18, padding: '0 6px' },
+              style: { ...styles.button(true), marginLeft: 'auto', height: 18, padding: '0 6px' },
               onPointerDown: event => event.stopPropagation(),
               onClick: () => setCardCollapsed(value => !value),
               title: cardCollapsed ? '展开角色面板' : '收起角色面板',
