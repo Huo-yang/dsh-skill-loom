@@ -15,6 +15,7 @@ import {
   newRoleId,
   planRole,
   requiresClosure,
+  resolvedMembers,
   roleNameKey,
   validateRole,
   validateRoleName,
@@ -127,7 +128,7 @@ export function createRoleGraphApi(deps) {
     }
     const filled = {
       ...role,
-      members: [...requiresClosure(role)],
+      members: [...resolvedMembers(role)],
       anchors: captureAnchors(role, repo),
     }
     const saved = await store.save(filled, { expectedRevision: options.expectedRevision })

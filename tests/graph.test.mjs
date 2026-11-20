@@ -12,6 +12,7 @@ import {
   planRole,
   referencedNames,
   requiresClosure,
+  resolvedMembers,
   roleNameKey,
   topoLevels,
   validateRole,
@@ -262,11 +263,13 @@ test('planRole reports what a save would add and what the catalog costs', () => 
   assert.equal(result.catalogChars, ('a'.length + 'a skill'.length) + ('b'.length + 'b skill'.length))
 })
 
-test('planRole never pulls in a dependent that is not a member', () => {
+test('an edge source outside members is pulled in, not left dangling', () => {
+  // Regression: a link whose `from` was not a member used to produce an edge the
+  // canvas never drew while the inspector still listed it as a dependent.
   const graph = role({ members: ['b'], edges: [{ from: 'a', to: 'b', why: 'x' }] })
   const result = planRole(graph, repo('a', 'b'))
-  assert.deepEqual(result.toAdd, [])
-  assert.deepEqual(result.runtime, ['b'])
+  assert.deepEqual(result.toAdd, ['a'])
+  assert.deepEqual([...result.runtime].sort(), ['a', 'b'])
 })
 
 // --- anchors -------------------------------------------------------------
@@ -442,4 +445,26 @@ test('resolving a role never mutates it', () => {
   planRole(graph, repo('a'), { exists: () => true })
   validateRole(graph, repo('a'), { source: 'agent', exists: () => true })
   assert.deepEqual(graph, before)
+})
+test('an edge endpoint outside members still belongs to the graph', () => {
+  const graph = role({ members: ['b'], edges: [{ from: 'a', to: 'b' }] })
+  assert.deepEqual([...resolvedMembers(graph)].sort(), ['a', 'b'])
+})
+
+test('resolving members also closes over the endpoints dependencies', () => {
+  const graph = role({
+    members: ['c'],
+    edges: [
+      { from: 'a', to: 'b' },
+      { from: 'b', to: 'c' },
+    ],
+  })
+  assert.deepEqual([...resolvedMembers(graph)].sort(), ['a', 'b', 'c'])
+})
+
+test('planRole treats an orphan edge source as a member to add', () => {
+  const graph = role({ members: ['b'], edges: [{ from: 'a', to: 'b' }] })
+  const plan = planRole(graph, repo('a', 'b'))
+  assert.deepEqual(plan.toAdd, ['a'])
+  assert.deepEqual(plan.members.sort(), ['a', 'b'])
 })

@@ -403,7 +403,7 @@ export function validateRole(role, repository, options = {}) {
     issues.push({ code: 'cycle', severity: 'error', message: `requires cycle: ${cycle.join(' -> ')}` })
   }
 
-  const closure = requiresClosure(role)
+  const closure = resolvedMembers(role)
   const members = new Set(role?.members ?? [])
   const exists = options.exists
   const anchors = role?.anchors ?? {}
@@ -469,8 +469,9 @@ export function validateRole(role, repository, options = {}) {
  */
 export function planRole(role, repository, options = {}) {
   const index = normalizeRepository(repository)
-  const members = [...new Set(role?.members ?? [])]
-  const closure = requiresClosure(role)
+  const declared = new Set(role?.members ?? [])
+  const closure = resolvedMembers(role)
+  const members = [...closure]
   const health = computeHealth(role, index)
   const levels = topoLevels(role)
 
@@ -483,7 +484,7 @@ export function planRole(role, repository, options = {}) {
   return {
     members,
     closure: [...closure],
-    toAdd: [...closure].filter(name => !members.includes(name)),
+    toAdd: [...closure].filter(name => !declared.has(name)),
     ...health,
     cycles: findCycles(role),
     anchors: captureAnchors(role, index),
@@ -493,4 +494,23 @@ export function planRole(role, repository, options = {}) {
     catalogChars,
     issues: validateRole(role, index, options),
   }
+}
+
+/**
+ * Every skill the graph actually contains.
+ *
+ * Members plus *both* endpoints of every edge, then closed over `requires`.
+ * An edge is a statement that both of its ends belong to the graph; walking only
+ * from `members` would leave a `from` node outside the role forever, invisible on
+ * the canvas while still listed as a dependent.
+ * @param {object} role - role graph.
+ * @returns {Set<string>} the resolved member set.
+ */
+export function resolvedMembers(role) {
+  const seed = new Set(role?.members ?? [])
+  for (const edge of role?.edges ?? []) {
+    if (typeof edge?.from === 'string') seed.add(edge.from)
+    if (typeof edge?.to === 'string') seed.add(edge.to)
+  }
+  return requiresClosure(role, seed)
 }

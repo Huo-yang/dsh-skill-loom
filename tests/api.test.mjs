@@ -302,3 +302,10 @@ test('an agent still has to justify an edge', async () => {
     'MISSING_WHY',
   )
 })
+test('linking a non-member onto a member pulls the source into members', async () => {
+  const handler = api()
+  const created = await handler.handle({ action: 'create', name: 'r', add: ['b'] })
+  const id = created.result.role.id
+  const linked = await handler.handle({ action: 'link', role: id, from: 'a', to: 'b' }, { source: 'human' })
+  assert.deepEqual([...linked.result.role.members].sort(), ['a', 'b'])
+})
