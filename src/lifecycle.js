@@ -33,9 +33,9 @@ export async function restoreBoundRoles({ agents, boundRoleFor, installRoleFor, 
   for (const agent of agents ?? []) {
     const sessionId = sessionIdOf(agent)
     if (sessionId === undefined) continue
-    const role = await boundRoleFor(sessionId)
-    if (role === undefined) continue
     try {
+      const role = await boundRoleFor(sessionId)
+      if (role === undefined) continue
       await installRoleFor(agent, sessionId, role)
       restored.push(sessionId)
     } catch (error) {

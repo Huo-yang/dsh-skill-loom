@@ -31,11 +31,21 @@ import { computeHealth } from './graph.js'
  * @param {{ name: string, order: number } | undefined} deps.personaSection - where to put the persona.
  * @returns {{ dispose: () => void, shadowed: string[], runtime: string[], persona: boolean }}
  */
-export function installRole({ skills, systemPrompt, scope, role, repo, definitions, personaSection }) {
+export function installRole({ skills, systemPrompt, scope, role, repo, definitions, personaSection, strict = false }) {
   const health = computeHealth(role, repo)
   const runtime = new Set(health.runtime)
   const disposers = []
   const shadowed = []
+
+  function dispose() {
+    while (disposers.length > 0) {
+      try {
+        disposers.pop()()
+      } catch {
+        // Continue releasing the remaining registrations.
+      }
+    }
+  }
 
   for (const [name, summary] of repo) {
     if (runtime.has(name)) continue
@@ -56,7 +66,11 @@ export function installRole({ skills, systemPrompt, scope, role, repo, definitio
         provider: 'skill-loom',
       }))
       shadowed.push(name)
-    } catch {
+    } catch (error) {
+      if (strict) {
+        dispose()
+        throw error
+      }
       // A skill that vanished between the catalog read and this registration is
       // simply not shadowed; the next rebuild picks up the settled state.
     }
@@ -77,15 +91,7 @@ export function installRole({ skills, systemPrompt, scope, role, repo, definitio
     shadowed,
     runtime: [...runtime],
     persona,
-    dispose() {
-      for (const dispose of disposers.reverse()) {
-        try {
-          dispose()
-        } catch {
-          // Disposal must never throw during teardown.
-        }
-      }
-    },
+    dispose,
   }
 }
 

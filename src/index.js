@@ -34,7 +34,7 @@ import { createDebouncedTask } from './scheduler.js'
 import { buildCatalog } from './catalog.js'
 import { ROUTE_PREFIX, createResource, toNodeHandler } from './http.js'
 import { createOverrideRegistry, resolveCreatedRole } from './spawn.js'
-import { RoleStore } from './store.js'
+import { RoleConflictError, RoleStore } from './store.js'
 import { createHistory } from './history.js'
 
 /** Cordis plugin name. */
@@ -73,16 +73,38 @@ export function apply(ctx, config = {}) {
   const rolesDir = config.rolesDir ?? defaultRolesDir()
   const store = new RoleStore(rolesDir)
   const history = createHistory({ limit: 20 })
+  let pending = Promise.resolve()
+  function serialize(work) {
+    const next = pending.then(work)
+    pending = next.catch(() => {})
+    return next
+  }
   // Every save through this handle remembers the state it replaced. The raw store
   // is kept for undo/redo itself, so restoring a snapshot does not record again.
   const trackedStore = {
     readAll: () => store.readAll(),
     read: id => store.read(id),
-    remove: id => store.remove(id),
+    remove: (id, expectedRevision) => serialize(async () => {
+      const role = await store.read(id)
+      if (role === undefined) return false
+      checkRevision(role, expectedRevision)
+      if (!await store.remove(id)) return false
+      history.forget(id)
+      for (const [sessionId, generation] of generations) {
+        if (generation.config.role.id === id) disposeSession(sessionId)
+      }
+      try {
+        await bindings.clearRole(id)
+      } catch (error) {
+        logger?.warn?.(`skill-loom: could not clear bindings for deleted role ${id}: ${String(error)}`)
+      }
+      return true
+    }),
     async save(role, options) {
       const before = await store.read(role?.id)
       const saved = await store.save(role, options)
       history.record(role.id, before)
+      if (before !== undefined) await refreshRole(saved)
       return saved
     },
   }
@@ -90,6 +112,8 @@ export function apply(ctx, config = {}) {
   /** @type {Map<string, { dispose: () => void }>} */
   const generations = new Map()
   const overrides = createOverrideRegistry()
+  const disposedAgents = new WeakSet()
+  let registering = false
   // Capture services once: after unload the context is inactive and even
   // ctx.logger may throw on access.
   const logger = ctx.logger
@@ -133,13 +157,9 @@ export function apply(ctx, config = {}) {
   }
 
   /**
-   * Install a role into one agent. Any previous generation is disposed first, so
-   * the definition lookup always sees the real skills rather than our shadows.
+   * Prepare a role while the current one is still installed.
    */
-  async function install(agent, sessionId, role) {
-    generations.get(sessionId)?.dispose()
-    generations.delete(sessionId)
-
+  async function prepare(agent, sessionId, role) {
     const cwd = await ctx.workingDirectory.ensure(agent)
     const repo = await catalog(agent, cwd)
     const agentSkills = agent.ctx.get('skills') ?? ctx.skills
@@ -151,6 +171,12 @@ export function apply(ctx, config = {}) {
     const runtime = new Set(computeHealth(role, repo).runtime)
     const shadowNames = [...repo.keys()].filter(skillName => !runtime.has(skillName))
     const definitions = await definitionsFor(agent, shadowNames)
+    const previous = generations.get(sessionId)?.config
+    for (const [skillName, definition] of definitions) {
+      if (definition.provider === 'skill-loom' && previous?.definitions.has(skillName)) {
+        definitions.set(skillName, previous.definitions.get(skillName))
+      }
+    }
 
     const wantsPersona = typeof role?.persona?.prefix === 'string' && role.persona.prefix !== ''
     const personaSection = agentPrompt?.getSectionOrder === undefined
@@ -169,7 +195,7 @@ export function apply(ctx, config = {}) {
       )
     }
 
-    const generation = installRole({
+    return {
       skills: agentSkills,
       systemPrompt: agentPrompt,
       scope: agent,
@@ -177,33 +203,93 @@ export function apply(ctx, config = {}) {
       repo,
       definitions,
       personaSection,
-    })
-    if (wantsPersona && generation.persona !== true && personaSection !== undefined) {
+    }
+  }
+
+  function activate(sessionId, config, strict = true) {
+    registering = true
+    try {
+      disposeSession(sessionId)
+      if (!active || config === undefined || disposedAgents.has(config.scope)) return undefined
+      const generation = { ...installRole({ ...config, strict }), config }
+      generations.set(sessionId, generation)
+      return generation
+    } finally {
+      registering = false
+    }
+  }
+
+  async function install(agent, sessionId, role, persist = false) {
+    const config = await prepare(agent, sessionId, role)
+    if (!active || disposedAgents.has(agent)) return undefined
+    const previous = generations.get(sessionId)?.config
+    let generation
+    try {
+      generation = activate(sessionId, config)
+      if (persist) await bindings.set(sessionId, role.id)
+    } catch (error) {
+      activate(sessionId, previous, false)
+      throw error
+    }
+    if (role?.persona?.prefix && generation.persona !== true && config.personaSection !== undefined) {
       logger?.warn?.(
         `skill-loom: persona section for role "${String(role?.name ?? role?.id)}" was rejected by the prompt registry`,
       )
     }
-    generations.set(sessionId, generation)
     return generation
+  }
+
+  async function refreshRole(role) {
+    for (const [sessionId, generation] of [...generations]) {
+      if (!active) return
+      if (generation.config.role.id !== role.id) continue
+      try {
+        await install(generation.config.scope, sessionId, role)
+      } catch (error) {
+        logger?.warn?.(`skill-loom: could not refresh ${sessionId}: ${String(error)}`)
+      }
+    }
+  }
+
+  function checkRevision(role, expected) {
+    if (expected !== undefined && role.revision !== expected) {
+      throw new RoleConflictError(role.id, expected, role.revision)
+    }
   }
 
   /**
    * Walk one step of a role's history and write the snapshot back as a new
    * revision. The raw store is used so the restore itself is not recorded.
    */
-  async function restoreRole(id, direction) {
+  async function restoreRole(id, direction, expectedRevision) {
     const current = await store.read(id)
     if (current === undefined) return undefined
-    const target = direction === 'undo'
-      ? history.takeUndo(id, current)
-      : history.takeRedo(id, current)
+    checkRevision(current, expectedRevision)
+    const target = history.peek(id, direction)
     if (target === undefined) return undefined
-    return store.save(target, {})
+    const saved = await store.save(target, { expectedRevision: current.revision })
+    if (direction === 'undo') history.takeUndo(id, current)
+    else history.takeRedo(id, current)
+    await refreshRole(saved)
+    return saved
   }
 
   function disposeSession(sessionId) {
-    generations.get(sessionId)?.dispose()
+    const generation = generations.get(sessionId)
     generations.delete(sessionId)
+    const wasRegistering = registering
+    registering = true
+    try {
+      generation?.dispose()
+    } finally {
+      registering = wasRegistering
+    }
+  }
+
+  async function unbind(sessionId) {
+    const cleared = await bindings.clear(sessionId)
+    disposeSession(sessionId)
+    return cleared
   }
 
   /** Read the role a session is bound to, if any. */
@@ -251,7 +337,7 @@ export function apply(ctx, config = {}) {
       const sessionId = sessionIdOf(agent)
       const cwd = agent === undefined ? undefined : await ctx.workingDirectory.ensure(agent, exec.signal)
       try {
-        return await api.handle(args, {
+        return await serialize(() => api.handle(args, {
           cwd,
           agent,
           sessionId,
@@ -259,8 +345,8 @@ export function apply(ctx, config = {}) {
             if (sessionId === undefined) {
               throw new RoleGraphError('NO_SESSION', 'this tool call has no session to bind')
             }
-            await bindings.set(sessionId, role.id)
-            const generation = await install(agent, sessionId, role)
+            const generation = await install(agent, sessionId, role, true)
+            if (generation === undefined) throw new RoleGraphError('NO_SESSION', 'the session was closed')
             return {
               sessionId,
               roleId: role.id,
@@ -272,10 +358,9 @@ export function apply(ctx, config = {}) {
           },
           clearSession: async () => {
             if (sessionId === undefined) return false
-            disposeSession(sessionId)
-            return await bindings.clear(sessionId)
+            return await unbind(sessionId)
           },
-        })
+        }))
       } catch (error) {
         if (error instanceof RoleGraphError) {
           const detail = error.details === undefined ? '' : `\n${JSON.stringify(error.details, null, 2)}`
@@ -351,7 +436,7 @@ export function apply(ctx, config = {}) {
     // A handler, not a resource: resource routes answer GET/HEAD only.
     handler: toNodeHandler(createResource({
       store: trackedStore,
-      mutate: async input => api.handle(input, { expectedRevision: input.expectedRevision, source: 'human' }),
+      mutate: input => serialize(() => api.handle(input, { expectedRevision: input.expectedRevision, source: 'human' })),
       // Union of the global layer and every live agent scope: the editor must
       // not report a preset-mounted skill as missing just because no agent is
       // answering an HTTP request.
@@ -369,10 +454,9 @@ export function apply(ctx, config = {}) {
       },
       history: {
         counts: id => history.counts(id),
-        undo: id => restoreRole(id, 'undo'),
-        redo: id => restoreRole(id, 'redo'),
+        undo: (id, revision) => serialize(() => restoreRole(id, 'undo', revision)),
+        redo: (id, revision) => serialize(() => restoreRole(id, 'redo', revision)),
       },
-      onRemoved: id => history.forget(id),
       sessions: {
         list: async () => {
           const rows = []
@@ -387,20 +471,19 @@ export function apply(ctx, config = {}) {
           }
           return rows
         },
-        bind: async (sessionId, role) => {
-          await bindings.set(sessionId, role.id)
+        bind: (sessionId, selected) => serialize(async () => {
+          const role = await store.read(selected.id)
+          if (role === undefined) throw new RoleGraphError('ROLE_NOT_FOUND', 'the role was deleted')
           const agent = ctx.agents.get(sessionId)
-          if (agent !== undefined) await install(agent, sessionId, role)
-          return { sessionId, roleId: role.id, live: agent !== undefined }
-        },
-        unbind: async sessionId => {
-          disposeSession(sessionId)
-          return { sessionId, cleared: await bindings.clear(sessionId) }
-        },
+          if (agent === undefined) await bindings.set(sessionId, role.id)
+          const installed = agent === undefined ? undefined : await install(agent, sessionId, role, true)
+          return { sessionId, roleId: role.id, live: installed !== undefined }
+        }),
+        unbind: sessionId => serialize(async () => ({ sessionId, cleared: await unbind(sessionId) })),
       },
     })),
   }), 'skill-loom: http routes'))
-  ctx.on('agent/created', async ({ agent }) => {
+  ctx.on('agent/created', ({ agent }) => serialize(async () => {
     if (!active) return
     const sessionId = sessionIdOf(agent)
     if (sessionId === undefined) return
@@ -420,14 +503,15 @@ export function apply(ctx, config = {}) {
     if (!active || decision.role === undefined) return
     try {
       // Persist so a reload can restore the child without its parent.
-      await bindings.set(sessionId, decision.role.id)
-      await install(agent, sessionId, decision.role)
+      await install(agent, sessionId, decision.role, decision.source !== 'own')
     } catch (error) {
       logger?.warn?.(`skill-loom: could not install role "${decision.role.name}" for ${sessionId}: ${String(error)}`)
     }
-  })
+  }))
 
   ctx.on('agent/disposed', ({ agent }) => {
+    if (agent === undefined) return
+    disposedAgents.add(agent)
     const sessionId = sessionIdOf(agent)
     if (sessionId !== undefined) disposeSession(sessionId)
   })
@@ -436,7 +520,7 @@ export function apply(ctx, config = {}) {
   // again, and the previous instance's generation is gone. Restore first, and
   // release our generations when this instance unloads.
   ctx.effect(() => {
-    void (async () => {
+    void serialize(async () => {
       if (!active) return
       try {
         await restoreBoundRoles({
@@ -450,7 +534,7 @@ export function apply(ctx, config = {}) {
       } catch (error) {
         logger?.warn?.(`skill-loom: restoring bound roles failed: ${String(error)}`)
       }
-    })()
+    })
     return () => {
       active = false
       rebuild.cancel()
@@ -465,7 +549,7 @@ export function apply(ctx, config = {}) {
     delay: 250,
     isActive: () => active,
     onError: error => logger?.warn?.(`skill-loom: rebuild after skills/change failed: ${String(error)}`),
-    async run() {
+    run: () => serialize(async () => {
       for (const sessionId of [...generations.keys()]) {
         if (!active) return
         const agent = ctx.agents.get(sessionId)
@@ -480,12 +564,14 @@ export function apply(ctx, config = {}) {
         }
         try {
           await install(agent, sessionId, role)
-        } catch {
-          // Keep the previous generation if the rebuild of one session fails.
+        } catch (error) {
+          logger?.warn?.(`skill-loom: could not rebuild ${sessionId}: ${String(error)}`)
         }
       }
-    },
+    }),
   })
 
-  ctx.on('skills/change', () => rebuild.trigger())
+  ctx.on('skills/change', () => {
+    if (!registering) rebuild.trigger()
+  })
 }

@@ -36,10 +36,12 @@ export class BindingStore {
     let text
     try {
       text = await readFile(this.file, 'utf8')
-    } catch {
-      this.cache = empty
+    } catch (error) {
+      if (error?.code !== 'ENOENT') throw error
+      this.cache ??= empty
       return this.cache
     }
+    if (this.cache !== undefined) return this.cache
     try {
       const parsed = JSON.parse(text)
       const bindings = parsed?.bindings
@@ -74,8 +76,10 @@ export class BindingStore {
    */
   async set(sessionId, roleId) {
     const state = await this.load()
-    state.bindings[sessionId] = { roleId, boundAt: new Date().toISOString() }
-    await this.flush()
+    await this.flush({
+      ...state,
+      bindings: { ...state.bindings, [sessionId]: { roleId, boundAt: new Date().toISOString() } },
+    })
   }
 
   /**
@@ -85,18 +89,28 @@ export class BindingStore {
    */
   async clear(sessionId) {
     const state = await this.load()
-    if (!(sessionId in state.bindings)) return false
-    delete state.bindings[sessionId]
-    await this.flush()
+    if (!Object.hasOwn(state.bindings, sessionId)) return false
+    const bindings = { ...state.bindings }
+    delete bindings[sessionId]
+    await this.flush({ ...state, bindings })
     return true
   }
 
-  /** Write the whole document atomically. */
-  async flush() {
+  async clearRole(roleId) {
     const state = await this.load()
+    const entries = Object.entries(state.bindings)
+    const remaining = entries.filter(([, entry]) => entry?.roleId !== roleId)
+    if (remaining.length !== entries.length) {
+      await this.flush({ ...state, bindings: Object.fromEntries(remaining) })
+    }
+  }
+
+  /** Write the whole document atomically. */
+  async flush(state) {
     await mkdir(dirname(this.file), { recursive: true })
     const temp = `${this.file}.tmp`
     await writeFile(temp, `${JSON.stringify(state, null, 2)}\n`, 'utf8')
     await rename(temp, this.file)
+    this.cache = state
   }
 }

@@ -136,7 +136,7 @@ export class RoleStore {
 
     const existing = await this.read(role.id)
     const previous = typeof existing?.revision === 'number' ? existing.revision : 0
-    if (options.expectedRevision !== undefined && existing !== undefined && options.expectedRevision !== previous) {
+    if (options.expectedRevision !== undefined && options.expectedRevision !== previous) {
       throw new RoleConflictError(role.id, options.expectedRevision, previous)
     }
 

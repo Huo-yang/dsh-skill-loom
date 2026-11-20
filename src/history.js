@@ -38,6 +38,10 @@ export function createHistory(options = {}) {
   }
 
   return {
+    peek(id, direction) {
+      return stacks.get(id)?.[direction]?.at(-1)
+    },
+
     /**
      * Remember the state a change is about to replace.
      * @param {string} id - role id.

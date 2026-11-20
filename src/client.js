@@ -654,7 +654,7 @@ window.__ModuleLoader__.load({
             body: JSON.stringify({ name }),
           })
           const body = await response.json().catch(() => ({}))
-          if (!response.ok) throw new Error(body.message ?? body.code ?? body.error ?? HTTP )
+          if (!response.ok) throw new Error(body.message ?? body.code ?? body.error ?? 'HTTP ' + response.status)
           setCreatingRole(undefined)
           setRoleMenu(false)
           await loadList()
@@ -680,7 +680,7 @@ window.__ModuleLoader__.load({
           if (!response.ok) {
             throw new Error(body.error === 'conflict'
               ? '这个角色刚被别处修改过，请刷新后再操作'
-              : (body.message ?? body.error ?? HTTP ))
+              : (body.message ?? body.error ?? 'HTTP ' + response.status))
           }
           setConfirmRoleDel(undefined)
           if (selectedRole === item.id) {
@@ -762,13 +762,15 @@ window.__ModuleLoader__.load({
           const response = await fetch('/skill-loom/roles/' + encodeURIComponent(current.id) + '/history', {
             method: 'POST',
             headers: { 'content-type': 'application/json' },
-            body: JSON.stringify({ action: direction }),
+            body: JSON.stringify({ action: direction, expectedRevision: current.revision }),
           })
           const body = await response.json().catch(() => ({}))
           if (!response.ok) {
             throw new Error(body.error === 'no-history'
               ? '没有可' + (direction === 'undo' ? '撤销' : '重做') + '的操作'
-              : (body.message ?? body.error ?? 'HTTP ' + response.status))
+              : body.error === 'conflict'
+                ? '角色刚被修改，请刷新后重试'
+                : (body.message ?? body.error ?? 'HTTP ' + response.status))
           }
           setDetail({
             status: 'ready',

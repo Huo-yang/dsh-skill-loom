@@ -84,7 +84,7 @@ function summarize(role, repo, exists) {
  * @param {(input: object) => Promise<object>} [deps.mutate] - action dispatch (agent action layer).
  * @returns {(request: Request) => Promise<Response>} the resource.
  */
-export function createResource({ store, catalog, exists, mutate, sessions, history, onRemoved }) {
+export function createResource({ store, catalog, exists, mutate, sessions, history }) {
   async function readBody(request) {
     const declared = Number(request.headers.get('content-length') ?? '0')
     if (Number.isFinite(declared) && declared > MAX_BODY_BYTES) return { tooLarge: true }
@@ -247,7 +247,8 @@ export function createResource({ store, catalog, exists, mutate, sessions, histo
         if (body.invalid === true) return json({ error: 'invalid-json' }, 400)
         const direction = body.value?.action
         if (direction !== 'undo' && direction !== 'redo') return json({ error: 'invalid-action' }, 400)
-        const restored = direction === 'undo' ? await history.undo(id) : await history.redo(id)
+        const revision = typeof body.value?.expectedRevision === 'number' ? body.value.expectedRevision : undefined
+        const restored = direction === 'undo' ? await history.undo(id, revision) : await history.redo(id, revision)
         if (restored === undefined) return json({ error: 'no-history' }, 409)
         const log = await store.readAll()
         const plan = planRole(restored, repo, { exists })
@@ -269,11 +270,11 @@ export function createResource({ store, catalog, exists, mutate, sessions, histo
         if (body.tooLarge === true) return json({ error: 'body-too-large' }, 413)
         const role = await store.read(id)
         if (role === undefined) return json({ error: 'role-not-found', id }, 404)
-        if (typeof body.value?.expectedRevision === 'number' && role.revision !== body.value.expectedRevision) {
+        const revision = typeof body.value?.expectedRevision === 'number' ? body.value.expectedRevision : undefined
+        if (revision !== undefined && role.revision !== revision) {
           return json({ error: 'conflict', current: role }, 409)
         }
-        await store.remove(id)
-        onRemoved?.(id)
+        if (!await store.remove(id, revision)) return json({ error: 'role-not-found', id }, 404)
         return json({ ok: true, result: { id } })
       }
 
@@ -300,6 +301,10 @@ export function createResource({ store, catalog, exists, mutate, sessions, histo
 
       return json({ error: 'not-found' }, 404)
     } catch (error) {
+      if (error?.name === 'RoleConflictError') {
+        return json({ error: 'conflict', current: await store.read(error.id) }, 409)
+      }
+      if (error?.code === 'ROLE_NOT_FOUND') return json({ error: 'role-not-found' }, 404)
       return json({ error: 'internal', message: String(error?.message ?? error) }, 500)
     }
   }
