@@ -645,7 +645,7 @@ window.__ModuleLoader__.load({
         ? { ...styles.canvasFill, position: 'relative', inset: 'auto', flex: '1 1 52%', minHeight: 160, paddingRight: 0 }
         : { ...styles.canvasFill, position: 'relative', inset: 'auto', flex: '1 1 auto', minHeight: 200, paddingRight: 0 }
       const cardStyle = compact
-        ? { ...styles.roleCard, position: 'relative', top: 'auto', left: 'auto', width: 'auto', borderRadius: 0, border: 'none', borderBottom: '1px solid var(--dsw-alias-border-l2, rgba(127,127,127,.28))', boxShadow: 'none', zIndex: 1 }
+        ? { ...styles.roleCard, position: 'relative', top: 'auto', left: 'auto', width: 'auto', borderRadius: 0, border: 'none', borderBottom: '1px solid var(--dsw-alias-border-l2, rgba(127,127,127,.28))', boxShadow: 'none', zIndex: 1, order: -1 }
         : { ...styles.roleCard, left: cardPos.x, top: cardPos.y }
       const panelStyle = compact
         ? { ...styles.panel, position: 'relative', top: 'auto', right: 'auto', bottom: 'auto', width: 'auto', flex: '1 1 48%', minHeight: 0, borderRadius: 0, border: 'none', boxShadow: 'none', zIndex: 1 }
