@@ -164,19 +164,17 @@ window.__ModuleLoader__.load({
         setEdgeDrag({ index, edge, ox: point.x, oy: point.y, x: point.x, y: point.y, moved: false })
       }
 
-      const beginLink = name => event => {
+      const beginLink = (name, requested) => event => {
         if (event.button !== 0) return
         event.stopPropagation()
         svgRef.current?.setPointerCapture?.(event.pointerId)
         const point = pointOf(event)
-        // The role node is not movable: dragging a skill moves its box, leaving a
-        // dashed placeholder behind, and dropping it on the trash removes it.
-        if (name === '__role__') {
-          setDrag({ from: name, mode: 'none', ox: point.x, oy: point.y, x: point.x, y: point.y, moved: false })
-          return
-        }
-        setDrag({ from: name, mode: 'move', ox: point.x, oy: point.y, x: point.x, y: point.y, moved: false })
-        onRemovalDrag(true)
+        // The grip carries the box (and feeds the trash zone); the body draws a
+        // connection. Separating by handle keeps one gesture from stealing the
+        // other, without demanding a modifier key.
+        const mode = requested === 'move' && name !== '__role__' ? 'move' : 'link'
+        setDrag({ from: name, mode, ox: point.x, oy: point.y, x: point.x, y: point.y, moved: false })
+        if (mode === 'move') onRemovalDrag(true)
       }
       const moveLink = event => {
         const point = pointOf(event)
@@ -206,6 +204,8 @@ window.__ModuleLoader__.load({
             // gesture is active; anywhere else simply returns the node.
             onRemovalDrag(false)
             onRemoveDrop(drag.from, event.clientX, event.clientY)
+          } else if (drag.mode === 'link' && target !== undefined && target !== drag.from) {
+            onCreateEdge(drag.from, target)
           }
         } else {
           if (drag.mode === 'move') onRemovalDrag(false)
@@ -318,7 +318,7 @@ window.__ModuleLoader__.load({
             key: 'node',
             transform: `translate(${position.x - NODE_W / 2 + ghost.dx}, ${position.y - NODE_H + ghost.dy})`,
             opacity: removing ? 0.7 : 1,
-            onPointerDown: beginLink(node.name),
+            onPointerDown: beginLink(node.name, 'link'),
             style: { cursor: 'grab' },
             onDragOver: event => {
               event.preventDefault()
@@ -348,6 +348,21 @@ window.__ModuleLoader__.load({
               x: 26, y: NODE_H / 2 + 4, fontSize: 12, fill: 'currentColor',
               style: { fontFamily: 'ui-monospace, SFMono-Regular, Consolas, monospace' },
             }, node.label.length > 17 ? `${node.label.slice(0, 16)}…` : node.label),
+            node.kind === 'role' ? null : h('g', {
+              key: 'grip',
+              onPointerDown: beginLink(node.name, 'move'),
+              style: { cursor: 'grab' },
+            }, [
+              h('title', { key: 'tip' }, '拖动握把搬走节点，放到删除区即移除'),
+              h('circle', {
+                key: 'knob', cx: -9, cy: NODE_H / 2, r: 7,
+                fill: 'var(--dsw-alias-bg-layer-2, #ffffff)',
+                stroke: 'currentColor', strokeOpacity: 0.35, strokeWidth: 1,
+              }),
+              h('circle', { key: 'd1', cx: -9, cy: NODE_H / 2 - 3.2, r: 1.3, fill: 'currentColor', fillOpacity: 0.45 }),
+              h('circle', { key: 'd2', cx: -9, cy: NODE_H / 2, r: 1.3, fill: 'currentColor', fillOpacity: 0.45 }),
+              h('circle', { key: 'd3', cx: -9, cy: NODE_H / 2 + 3.2, r: 1.3, fill: 'currentColor', fillOpacity: 0.45 }),
+            ]),
           ]),
         ])
       }))
