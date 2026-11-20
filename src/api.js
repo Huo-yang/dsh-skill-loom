@@ -41,7 +41,7 @@ const ACTIONS = [
   'help', 'list', 'show', 'plan',
   'create', 'set_name', 'set_persona',
   'add_members', 'remove_members',
-  'link', 'unlink', 'duplicate', 'bind', 'unbind',
+  'link', 'unlink', 'reparent', 'duplicate', 'bind', 'unbind',
 ]
 
 const HELP = {
@@ -251,6 +251,39 @@ export function createRoleGraphApi(deps) {
         const drop = new Set(input.remove)
         next.members = (next.members ?? []).filter(name => !drop.has(name))
         next.edges = (next.edges ?? []).filter(edge => !drop.has(edge.from) && !drop.has(edge.to))
+        break
+      }
+      case 'reparent': {
+        // Dragging X onto Y splices Y between X and everything X required: the
+        // old dependencies move to Y, and X keeps a single edge to Y. X itself
+        // stays where it was, so anything depending on X now reaches the old
+        // dependencies through the new hop.
+        if (typeof input.from !== 'string' || typeof input.to !== 'string') {
+          throw new RoleGraphError('INVALID_EDGE', 'reparent needs both "from" and "to"')
+        }
+        if (input.from === input.to) throw new RoleGraphError('INVALID_EDGE', 'a skill cannot require itself')
+        const why = typeof input.why === 'string' ? input.why.trim() : ''
+        if (why === '' && (context.source ?? 'agent') === 'agent') {
+          throw new RoleGraphError('MISSING_WHY', 'an agent-created edge must explain why it exists')
+        }
+        if (why.length > 80) throw new RoleGraphError('WHY_TOO_LONG', 'why must be 80 characters or fewer')
+
+        const current = next.edges ?? []
+        const moving = current.filter(edge => edge.from === input.from)
+        const kept = current.filter(edge => edge.from !== input.from)
+        const inherited = moving
+          .filter(edge => edge.to !== input.to)
+          .map(edge => ({ from: input.to, to: edge.to, ...(edge.why === undefined ? {} : { why: edge.why }) }))
+
+        const merged = []
+        const seen = new Set()
+        for (const edge of [...kept, ...inherited, { from: input.from, to: input.to, ...(why === '' ? {} : { why }) }]) {
+          const key = edge.from + '\u0000' + edge.to
+          if (seen.has(key)) continue
+          seen.add(key)
+          merged.push(edge)
+        }
+        next.edges = merged
         break
       }
       case 'link': {

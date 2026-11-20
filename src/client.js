@@ -658,7 +658,7 @@ window.__ModuleLoader__.load({
         if (onRole) void send('members', { action: 'add_members', add: [value] })
         // Dropping A onto B means A depends on B: the dragged skill is the
         // dependent, the node it lands on is the dependency.
-        else if (value !== target) void send('edges', { action: 'link', from: value, to: target })
+        else if (value !== target) void send('edges', { action: 'reparent', from: value, to: target })
       }
 
       const roleReady = detail.status === 'ready'
@@ -716,7 +716,7 @@ window.__ModuleLoader__.load({
                     // skill"; skill-to-skill means "requires".
                     if (from === '__role__') void send('members', { action: 'add_members', add: [to] })
                     else if (to === '__role__') void send('members', { action: 'add_members', add: [from] })
-                    else void send('edges', { action: 'link', from, to })
+                    else void send('edges', { action: 'reparent', from, to })
                   },
                   onDropOnNode: dropOnNode,
                   onRemoveEdge: edge => void send('edges', { action: 'unlink', from: edge.from, to: edge.to }),

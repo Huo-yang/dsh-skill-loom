@@ -309,3 +309,31 @@ test('linking a non-member onto a member pulls the source into members', async (
   const linked = await handler.handle({ action: 'link', role: id, from: 'a', to: 'b' }, { source: 'human' })
   assert.deepEqual([...linked.result.role.members].sort(), ['a', 'b'])
 })
+
+test('reparent splices the target between a skill and its dependencies', async () => {
+  // office -> dsh-doc -> (a, b); dragging dsh-doc onto c should yield
+  // office -> dsh-doc -> c -> (a, b).
+  const handler = api()
+  const created = await handler.handle({ action: 'create', name: 'r', add: ['a', 'b', 'c'] })
+  const id = created.result.role.id
+  await handler.handle({ action: 'link', role: id, from: 'dsh-doc', to: 'a', why: 'x' }, { source: 'human' })
+  await handler.handle({ action: 'link', role: id, from: 'dsh-doc', to: 'b', why: 'y' }, { source: 'human' })
+  await handler.handle({ action: 'link', role: id, from: 'office', to: 'dsh-doc', why: 'z' }, { source: 'human' })
+
+  const reparented = await handler.handle(
+    { action: 'reparent', role: id, from: 'dsh-doc', to: 'c' },
+    { source: 'human' },
+  )
+  const edges = reparented.result.role.edges.map(edge => `${edge.from}->${edge.to}`).sort()
+  assert.deepEqual(edges, ['c->a', 'c->b', 'dsh-doc->c', 'office->dsh-doc'])
+})
+
+test('reparent keeps a single edge when the target was already a dependency', async () => {
+  const handler = api()
+  const created = await handler.handle({ action: 'create', name: 'r', add: ['a', 'b'] })
+  const id = created.result.role.id
+  await handler.handle({ action: 'link', role: id, from: 'a', to: 'b', why: 'x' }, { source: 'human' })
+
+  const reparented = await handler.handle({ action: 'reparent', role: id, from: 'a', to: 'b' }, { source: 'human' })
+  assert.deepEqual(reparented.result.role.edges.map(edge => `${edge.from}->${edge.to}`), ['a->b'])
+})

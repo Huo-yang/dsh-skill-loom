@@ -24,7 +24,7 @@ export const MAX_BODY_BYTES = 64 * 1024
 /** The only actions the browser may perform, per route. */
 const MEMBER_ACTIONS = new Set(['add_members', 'remove_members'])
 const FIELD_ACTIONS = new Set(['set_name', 'set_persona'])
-const EDGE_ACTIONS = new Set(['link', 'unlink', 'prune_edges'])
+const EDGE_ACTIONS = new Set(['link', 'unlink', 'reparent'])
 
 const json = (body, status = 200) => new Response(JSON.stringify(body), {
   status,
