@@ -948,6 +948,7 @@ window.__ModuleLoader__.load({
                 key: 'toggle',
                 type: 'button',
                 className: 'loom-option',
+                style: { maxWidth: 152 },
                 onClick: () => setRoleMenu(open => !open),
               }, [
                 h('svg', {
@@ -958,7 +959,7 @@ window.__ModuleLoader__.load({
                   className: 'loom-option-icon',
                   'aria-hidden': true,
                 }, h('path', { d: 'M8 2a3 3 0 1 1 0 6 3 3 0 0 1 0-6Zm-6 12c0-2.5 2.7-4 6-4s6 1.5 6 4v.5H2V14Z', fill: 'currentColor' })),
-                h('span', { key: 'label', className: 'loom-option-label' }, roleReady ? role.name : (list.roles.length === 0 ? '还没有角色' : '选择角色')),
+                h('span', { key: 'label', className: 'loom-option-label', style: { maxWidth: 104 } }, roleReady ? role.name : (list.roles.length === 0 ? '还没有角色' : '选择角色')),
                 h('svg', {
                   key: 'chevron',
                   viewBox: '0 0 16 16',
