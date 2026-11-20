@@ -31,6 +31,7 @@ import { BindingStore, bindingsFileFor } from './bindings.js'
 import { restoreBoundRoles, sessionIdOf } from './lifecycle.js'
 import { installRole } from './runtime.js'
 import { createDebouncedTask } from './scheduler.js'
+import { buildCatalog } from './catalog.js'
 import { ROUTE_PREFIX, createResource, toNodeHandler } from './http.js'
 import { createOverrideRegistry, resolveCreatedRole } from './spawn.js'
 import { RoleStore } from './store.js'
@@ -170,7 +171,20 @@ export function apply(ctx, config = {}) {
 
   const api = createRoleGraphApi({
     store,
-    listSkills: async ({ agent, cwd }) => [...(await catalog(agent, cwd)).values()],
+    listSkills: async ({ agent, cwd }) => {
+      // A write dispatched from the page carries no agent. Falling back to the
+      // global layer alone would make preset-mounted skills look missing and
+      // drop their anchors on save, so widen the union to every live agent.
+      const byName = agent !== undefined
+        ? await catalog(agent, cwd)
+        : await buildCatalog({
+            list: options => ctx.skills.list(options),
+            agents: ctx.agents.list(),
+            base: cwd === undefined ? {} : { cwd },
+            onError: error => logger?.warn?.(`skill-loom: a skill scope failed: ${String(error)}`),
+          })
+      return [...byName.values()]
+    },
     exists: path => {
       try {
         return existsSync(path)
@@ -297,19 +311,11 @@ export function apply(ctx, config = {}) {
       // Union of the global layer and every live agent scope: the editor must
       // not report a preset-mounted skill as missing just because no agent is
       // answering an HTTP request.
-      catalog: async () => {
-        const byName = new Map((await ctx.skills.list({})).map(skill => [skill.name, skill]))
-        for (const agent of ctx.agents.list()) {
-          try {
-            for (const skill of await ctx.skills.list({ scope: agent })) {
-              if (!byName.has(skill.name)) byName.set(skill.name, skill)
-            }
-          } catch {
-            // A shutting-down agent must not break the page.
-          }
-        }
-        return byName
-      },
+      catalog: async () => buildCatalog({
+        list: options => ctx.skills.list(options),
+        agents: ctx.agents.list(),
+        onError: error => logger?.warn?.(`skill-loom: a skill scope failed: ${String(error)}`),
+      }),
       exists: path => {
         try {
           return existsSync(path)
