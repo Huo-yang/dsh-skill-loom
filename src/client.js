@@ -135,6 +135,9 @@ window.__ModuleLoader__.load({
       const svgRef = useRef(undefined)
       const [drag, setDrag] = useState(undefined)
       const [dropTarget, setDropTarget] = useState(undefined)
+      // Hovering a node dims every edge that does not touch it, answering which
+      // line belongs to this box without adding anything to the canvas.
+      const [hovered, setHovered] = useState(undefined)
       // Dragging an edge by its midpoint detaches it; releasing anywhere removes it.
       const [edgeDrag, setEdgeDrag] = useState(undefined)
 
@@ -275,17 +278,19 @@ window.__ModuleLoader__.load({
         const route = pathOf(edge)
         if (route === undefined) return null
         const dragging = edgeDrag !== undefined && edgeDrag.index === index && edgeDrag.moved
+        const related = hovered === undefined || edge.from === hovered || edge.to === hovered
+        const baseOpacity = edge.include ? 0.22 : 0.5
         return h('g', { key: `e${index}` },
           h('path', {
             d: dragging ? `M ${route.from.x} ${route.from.y} L ${edgeDrag.x} ${edgeDrag.y}` : route.d,
             fill: 'none',
             stroke: dragging ? COLORS.red : 'currentColor',
-            strokeOpacity: dragging ? 0.9 : edge.include ? 0.22 : 0.5,
-            strokeWidth: dragging ? 1.8 : 1.4,
+            strokeOpacity: dragging ? 0.9 : related ? Math.min(1, baseOpacity + 0.45) : 0.07,
+            strokeWidth: dragging ? 1.8 : related && !edge.include ? 2 : 1.4,
             strokeDasharray: edge.include || dragging ? '4 3' : undefined,
           }),
           // Only a real dependency can be detached; an include line is membership.
-          edge.include || dragging
+          edge.include || dragging || !related
             ? null
             : h('circle', {
                 cx: route.mid.x,
@@ -333,6 +338,8 @@ window.__ModuleLoader__.load({
             transform: `translate(${position.x - NODE_W / 2 + ghost.dx}, ${position.y - NODE_H + ghost.dy})`,
             opacity: removing ? 0.7 : 1,
             onPointerDown: beginLink(node.name, 'link'),
+            onPointerEnter: () => setHovered(node.name),
+            onPointerLeave: () => setHovered(current => (current === node.name ? undefined : current)),
             style: { cursor: 'grab' },
             onDragOver: event => {
               event.preventDefault()
