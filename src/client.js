@@ -970,6 +970,27 @@ window.__ModuleLoader__.load({
           name: 'sidebar.right.pane.tab',
           key: TAB_ID,
         }, TabRolePanel))
+
+        // Open the tab once per browser session so the feature is discoverable
+        // without hunting through the plus menu. The guard keeps later reloads
+        // from stacking duplicate tabs.
+        const right = ctx.get?.('sidebarRight')
+        if (right === undefined) return
+        try {
+          const key = 'skill-loom:auto-opened'
+          if (globalThis.sessionStorage?.getItem(key) === null) {
+            globalThis.sessionStorage?.setItem(key, '1')
+            setTimeout(() => {
+              try {
+                right.openTab(TAB_KIND)
+              } catch {
+                // Auto-opening is a convenience; a refused open changes nothing.
+              }
+            }, 700)
+          }
+        } catch {
+          // Storage can be unavailable in a sandboxed frame.
+        }
       },
     }
   },
