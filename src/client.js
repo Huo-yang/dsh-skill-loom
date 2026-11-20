@@ -17,21 +17,21 @@ window.__ModuleLoader__.load({
       stage: { position: 'relative', height: '100%', minHeight: 0, font: 'inherit', color: 'inherit', overflow: 'hidden' },
       canvasFill: {
         position: 'absolute', inset: 0, overflow: 'auto',
-        background: 'var(--dsw-alias-bg-base, Canvas)',
+        background: 'linear-gradient(rgba(0,0,0,.025), rgba(0,0,0,.025)), var(--dsw-alias-bg-base, #ffffff)',
       },
       roleCard: {
         position: 'absolute', top: 12, left: 12, width: 240, padding: '10px 12px',
-        borderRadius: 10, background: 'var(--dsw-alias-bg-overlay, Canvas)',
+        borderRadius: 10, background: 'var(--dsw-alias-bg-layer-2, #ffffff)',
         border: '1px solid var(--dsw-alias-border-l2, rgba(127,127,127,.28))',
-        boxShadow: '0 6px 20px rgba(0,0,0,.18)', display: 'flex', flexDirection: 'column',
+        boxShadow: '0 4px 16px rgba(0,0,0,.10)', display: 'flex', flexDirection: 'column',
       },
       cardTitle: { fontSize: 12, fontWeight: 600, opacity: 0.7, marginBottom: 8 },
       panel: {
         position: 'absolute', top: 12, right: 12, bottom: 12, width: 340,
         display: 'flex', flexDirection: 'column', overflow: 'hidden',
-        borderRadius: 10, background: 'var(--dsw-alias-bg-overlay, Canvas)',
+        borderRadius: 10, background: 'var(--dsw-alias-bg-layer-2, #ffffff)',
         border: '1px solid var(--dsw-alias-border-l2, rgba(127,127,127,.28))',
-        boxShadow: '0 6px 20px rgba(0,0,0,.18)',
+        boxShadow: '0 4px 16px rgba(0,0,0,.10)',
       },
       panelHead: { padding: '10px 10px 6px', display: 'flex', gap: 6 },
       skillScroll: {
@@ -42,7 +42,7 @@ window.__ModuleLoader__.load({
       title: { fontSize: 12, fontWeight: 600, opacity: 0.7, padding: '2px 8px 8px' },
       item: active => ({
         padding: '6px 8px', borderRadius: 5, cursor: 'pointer', marginBottom: 2,
-        background: active ? 'var(--dsw-alias-bg-layer-2, rgba(127,127,127,.14))' : 'transparent',
+        background: active ? 'var(--dsw-alias-bg-multi-select, rgba(0,0,0,.06))' : 'transparent',
       }),
       itemName: { fontSize: 12, display: 'flex', alignItems: 'center', gap: 6 },
       meta: { fontSize: 11, opacity: 0.6, marginTop: 2 },
@@ -63,7 +63,7 @@ window.__ModuleLoader__.load({
       }),
       select: {
         fontSize: 12, height: 22, maxWidth: 200,
-        background: 'var(--dsw-alias-bg-layer-2, rgba(127,127,127,.08))', color: 'inherit',
+        background: 'var(--dsw-alias-bg-layer-1, #ffffff)', color: 'inherit',
         border: '1px solid var(--dsw-alias-border-l2, rgba(127,127,127,.35))', borderRadius: 4,
       },
       dot: color => ({ width: 8, height: 8, borderRadius: 4, background: color, display: 'inline-block', flex: '0 0 auto' }),
@@ -177,7 +177,7 @@ window.__ModuleLoader__.load({
         },
         h('rect', {
           width: NODE_W, height: NODE_H, rx: 6,
-          fill: 'var(--dsw-alias-bg-layer-2, rgba(127,127,127,.1))',
+          fill: 'var(--dsw-alias-bg-layer-1, #ffffff)',
           stroke: active ? COLORS.role : 'currentColor',
           strokeOpacity: active ? 1 : 0.25,
           strokeWidth: active ? 2 : 1,
