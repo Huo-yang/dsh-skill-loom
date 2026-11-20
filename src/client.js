@@ -480,9 +480,6 @@ window.__ModuleLoader__.load({
       const [roleMenu, setRoleMenu] = useState(false)
       const [creatingRole, setCreatingRole] = useState(undefined)
       const [confirmRoleDel, setConfirmRoleDel] = useState(undefined)
-      // Per-row open-with menu: DSH owns the installed-application catalog, so the
-      // page only asks for it and posts the launch.
-      const [appMenuFor, setAppMenuFor] = useState(undefined)
       const [apps, setApps] = useState(undefined)
       const [appsLoading, setAppsLoading] = useState(false)
       const zoneRef = useRef(undefined)
@@ -795,7 +792,7 @@ window.__ModuleLoader__.load({
           if (!response.ok) {
             throw new Error('HTTP ' + response.status + ' ' + String(body.code ?? body.message ?? text.slice(0, 120)))
           }
-          setAppMenuFor(undefined)
+
           setNotice('已用 ' + appId + ' 打开 ' + dir)
         } catch (cause) {
           setError('打开失败：' + String(cause?.message ?? cause))
@@ -1131,38 +1128,6 @@ window.__ModuleLoader__.load({
                     h('span', { style: styles.dot(stateColor) }),
                     skill.name),
                   h('div', { key: 'm', style: styles.meta }, member ? '已纳入' : (skill.source ?? '')),
-                  typeof skill.path === 'string'
-                    ? h('button', {
-                        key: 'more',
-                        draggable: false,
-                        style: { ...styles.button(true), marginLeft: 'auto', height: 18, padding: '0 5px' },
-                        title: '在应用中打开',
-                        onPointerDown: event => event.stopPropagation(),
-                        onClick: event => {
-                          event.stopPropagation()
-                          const next = appMenuFor === skill.name ? undefined : skill.name
-                          setAppMenuFor(next)
-                          if (next !== undefined) void loadApps()
-                        },
-                      }, '…')
-                    : null,
-                  appMenuFor === skill.name
-                    ? h('div', {
-                        key: 'menu',
-                        className: 'loom-menu loom-menu--float',
-                      }, appsLoading
-                        ? h('div', { key: 'l', className: 'loom-menu-empty' }, '读取中…')
-                        : (apps ?? []).length === 0
-                          ? h('div', { key: 'e', className: 'loom-menu-empty' }, '没有可用的应用')
-                          : (apps ?? []).map(app => h('div', {
-                              key: appKey(app),
-                              className: 'loom-menu-item',
-                              onClick: event => {
-                                event.stopPropagation()
-                                void launchInApp(appKey(app), folderOf(skill.path))
-                              },
-                            }, appLabel(app))))
-                    : null,
                 ])
               })),
               h('div', { key: 'detail', style: styles.panelBody }, [
