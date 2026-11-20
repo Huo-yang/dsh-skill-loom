@@ -110,14 +110,15 @@ window.__ModuleLoader__.load({
 
     const MENU_CSS = `
 .loom-menu { margin-top: 6px; padding: 4px; border-radius: var(--dsw-radius-md, 8px); max-height: 200px; overflow-y: auto;
+  width: max-content; min-width: 140px; max-width: 260px;
   background: var(--dsw-alias-bg-layer-2, #ffffff);
   border: .5px solid var(--dsw-alias-border-l3, rgba(127,127,127,.28));
   box-shadow: 0 10px 28px rgba(0,0,0,.18); }
-.loom-menu--float { position: absolute; top: calc(100% + 4px); right: 0; left: auto; width: 190px; z-index: 30; }
-.loom-menu-item { display: flex; align-items: center; gap: 8px; min-height: 30px; padding: 0 8px;
+.loom-menu--float { position: absolute; top: calc(100% + 4px); right: 0; left: auto; z-index: 30; }
+.loom-menu-item { display: flex; align-items: center; min-height: 30px; padding: 0 8px;
   border-radius: var(--dsw-radius-sm, 6px); font-size: 13px; line-height: 20px; cursor: pointer;
   color: var(--dsw-alias-label-primary, inherit); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.loom-menu-check { margin-left: auto; flex: none; color: var(--dsw-alias-label-primary, currentColor); }
+.loom-menu-check { margin-left: 8px; flex: none; color: var(--dsw-alias-label-primary, currentColor); }
 .loom-menu-label { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 .loom-menu-item:hover { background: var(--dsw-alias-bg-multi-select, rgba(127,127,127,.16)); }
 .loom-menu-empty { padding: 6px 10px; font-size: 12px; opacity: .6; }
@@ -1334,7 +1335,7 @@ window.__ModuleLoader__.load({
           }, h('path', { d: 'M4 6l4 4 4-4', fill: 'none', stroke: 'currentColor', strokeWidth: 1.5, strokeLinecap: 'round' })),
         ]),
         open
-          ? h('div', { key: 'menu', className: 'loom-menu loom-menu--float', style: { left: 'auto', right: 0, width: 200 } }, [
+          ? h('div', { key: 'menu', className: 'loom-menu loom-menu--float', style: { left: 'auto', right: 0 } }, [
             h('div', { key: 'none', className: 'loom-menu-item', onClick: () => void choose(undefined) }, [
               h('span', { key: 'l', className: 'loom-menu-label' }, '默认（全部技能）'),
               bound === undefined ? h('span', { key: 'c' }, check) : null,
