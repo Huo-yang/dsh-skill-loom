@@ -295,7 +295,8 @@ window.__ModuleLoader__.load({
             stroke: dragging ? COLORS.red : 'currentColor',
             strokeOpacity: dragging ? 0.9 : related ? Math.min(1, baseOpacity + 0.45) : 0.07,
             strokeWidth: dragging ? 1.8 : related && !edge.include ? 2 : 1.4,
-            strokeDasharray: dragging ? '4 3' : undefined,
+            // Role links are a reading aid, not data: dashed marks them as such.
+            strokeDasharray: edge.include || dragging ? '4 3' : undefined,
           }),
           // Only a real dependency can be detached; an include line is membership.
           edge.include || dragging || !related
