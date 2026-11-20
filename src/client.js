@@ -111,13 +111,15 @@ window.__ModuleLoader__.load({
       const place = (name, level, index, count) => {
         const rowWidth = count * NODE_W + (count - 1) * GAP_X
         const x = (width - rowWidth) / 2 + index * (NODE_W + GAP_X) + NODE_W / 2
-        const y = (roleLevel - level) * ROW_H + NODE_H
+        // Dependencies sit nearest the role; consumers hang below them. `level 0`
+        // is a base skill, so it is the row right under the role node.
+        const y = level * ROW_H + 2 * ROW_H + NODE_H
         positions.set(name, { x, y })
       }
-      place('__role__', roleLevel, 0, 1)
-      for (const [level, row] of rows) row.forEach((name, index) => place(name, level, index, row.length))
+      place('__role__', -2, 0, 1)
+      for (const [level, row] of rows) row.forEach((name, index) => place(name, level + 1, index, row.length))
 
-      const height = (roleLevel + 1) * ROW_H + 20
+      const height = (maxLevel + 3) * ROW_H + NODE_H + 20
       return { width, height, positions, roleLevel }
     }
 
@@ -179,8 +181,12 @@ window.__ModuleLoader__.load({
         const a = geom.positions.get(edge.from)
         const b = geom.positions.get(edge.to)
         if (a === undefined || b === undefined) return undefined
-        const mid = (a.y + b.y - NODE_H) / 2
-        return `M ${a.x} ${a.y} C ${a.x} ${mid}, ${b.x} ${mid}, ${b.x} ${b.y - NODE_H}`
+        // Draw from whichever sides face each other, so the arrow never loops
+        // back over the nodes when the dependency sits above its consumer.
+        const fromY = b.y < a.y ? a.y - NODE_H : a.y
+        const toY = b.y < a.y ? b.y : b.y - NODE_H
+        const mid = (fromY + toY) / 2
+        return `M ${a.x} ${fromY} C ${a.x} ${mid}, ${b.x} ${mid}, ${b.x} ${toY}`
       }
 
       const nodes = [{ name: '__role__', label: role.name, kind: 'role' },
@@ -465,9 +471,9 @@ window.__ModuleLoader__.load({
         }
         if (kind !== 'skill') return
         if (onRole) void send('members', { action: 'add_members', add: [value] })
-        // Dropping A onto B means B depends on A: you are adding a dependency to
-        // the node you dropped on, not to the one you dragged.
-        else if (value !== target) void send('edges', { action: 'link', from: target, to: value })
+        // Dropping A onto B means A depends on B: the dragged skill is the
+        // dependent, the node it lands on is the dependency.
+        else if (value !== target) void send('edges', { action: 'link', from: value, to: target })
       }
 
       const roleReady = detail.status === 'ready'
@@ -585,7 +591,7 @@ window.__ModuleLoader__.load({
                     event.dataTransfer.setData('text/plain', 'skill:' + skill.name)
                     event.dataTransfer.effectAllowed = 'link'
                   },
-                  title: '拖到角色节点即纳入；拖到技能节点即让该技能依赖它',
+                  title: '拖到角色节点即纳入；拖到技能节点即依赖该技能',
                   style: { ...styles.item(selectedSkill === skill.name), cursor: 'grab' },
                   onClick: () => setSelectedSkill(skill.name),
                 }, [
