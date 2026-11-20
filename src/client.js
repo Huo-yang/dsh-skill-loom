@@ -218,10 +218,9 @@ window.__ModuleLoader__.load({
       for (const name of plan.members ?? []) edges.push({ from: '__role__', to: name, include: true })
       for (const edge of role.edges ?? []) edges.push({ from: edge.from, to: edge.to })
 
-      // Orthogonal routing keeps every edge out of the node boxes: the only
-      // horizontal run happens in the empty band just above the target row, and
-      // a vertical leg that would cross another box is moved to a side lane.
-      const GAP_Y = ROW_H - NODE_H
+      // Curves read better than right angles here: an orthogonal route adds long
+      // horizontal runs and corners that compete with the node boxes for
+      // attention. The arrowhead carries the direction instead.
       const pathOf = edge => {
         const a = geom.positions.get(edge.from)
         const b = geom.positions.get(edge.to)
@@ -232,38 +231,26 @@ window.__ModuleLoader__.load({
           const rightward = b.x > a.x
           const x1 = a.x + (rightward ? NODE_W / 2 : -NODE_W / 2)
           const x2 = b.x + (rightward ? -NODE_W / 2 : NODE_W / 2)
-          return { d: `M ${x1} ${y} L ${x2} ${y}`, from: { x: x1, y }, to: { x: x2, y }, mid: { x: (x1 + x2) / 2, y } }
+          const bend = (x2 - x1) / 2
+          return {
+            d: `M ${x1} ${y} C ${x1 + bend} ${y}, ${x2 - bend} ${y}, ${x2} ${y}`,
+            from: { x: x1, y },
+            to: { x: x2, y },
+            mid: { x: (x1 + x2) / 2, y },
+          }
         }
 
         const targetAbove = b.y < a.y
         const fromY = targetAbove ? a.y - NODE_H : a.y
         const toY = targetAbove ? b.y : b.y - NODE_H
-        const laneY = targetAbove ? toY - GAP_Y / 2 : toY + GAP_Y / 2
-
-        let laneX = a.x
-        const lowY = Math.min(fromY, laneY)
-        const highY = Math.max(fromY, laneY)
-        const blocked = [...geom.positions].some(([name, p]) => {
-          if (name === edge.from || name === edge.to) return false
-          const nearX = Math.abs(p.x - laneX) < NODE_W / 2 + 12
-          const top = p.y - NODE_H
-          const overlapsY = top < highY && p.y > lowY
-          return nearX && overlapsY
-        })
-        if (blocked) laneX = b.x >= a.x ? a.x + NODE_W / 2 + 28 : a.x - NODE_W / 2 - 28
-
-        const jog = laneX === a.x
-          ? ''
-          : `M ${a.x} ${fromY} L ${laneX} ${fromY} L ${laneX} ${laneY} `
-        const head = jog === '' ? `M ${a.x} ${fromY} L ${a.x} ${laneY} ` : jog
+        const bendY = (fromY + toY) / 2
         return {
-          d: `${head}L ${b.x} ${laneY} L ${b.x} ${toY}`,
+          d: `M ${a.x} ${fromY} C ${a.x} ${bendY}, ${b.x} ${bendY}, ${b.x} ${toY}`,
           from: { x: a.x, y: fromY },
           to: { x: b.x, y: toY },
-          mid: { x: (laneX + b.x) / 2, y: laneY },
+          mid: { x: (a.x + b.x) / 2, y: bendY },
         }
       }
-
       const nodes = [{ name: '__role__', label: role.name, kind: 'role' },
         ...(plan.members ?? []).map(name => ({ name, label: name, kind: 'skill' }))]
 
