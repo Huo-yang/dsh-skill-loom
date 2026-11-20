@@ -41,7 +41,7 @@ const ACTIONS = [
   'help', 'list', 'show', 'plan',
   'create', 'set_name', 'set_persona',
   'add_members', 'remove_members',
-  'link', 'unlink', 'prune_edges', 'duplicate', 'bind', 'unbind',
+  'link', 'unlink', 'duplicate', 'bind', 'unbind',
 ]
 
 const HELP = {
@@ -270,10 +270,7 @@ export function createRoleGraphApi(deps) {
         next.edges = edges
         break
       }
-      case 'prune_edges': {
-        next.edges = pruneEdges(next.edges)
-        break
-      }
+
       case 'unlink': {
         if (typeof input.from !== 'string' || typeof input.to !== 'string') {
           throw new RoleGraphError('INVALID_EDGE', 'unlink needs both "from" and "to"')
