@@ -27,10 +27,14 @@
     "dsh": ">=0.2.2-rc.5"
   },
   "peerDependencies": {
-    "@deepseek-ai/dsh-tools": ">=0.2.2-rc.5"
+    "@deepseek-ai/dsh-tools": ">=0.2.2-rc.5",
+    "@deepseek-ai/dsh-system-prompt": ">=0.2.2-rc.5"
   },
   "peerDependenciesMeta": {
     "@deepseek-ai/dsh-tools": {
+      "optional": true
+    },
+    "@deepseek-ai/dsh-system-prompt": {
       "optional": true
     }
   },

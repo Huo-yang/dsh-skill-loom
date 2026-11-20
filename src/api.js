@@ -39,7 +39,7 @@ const ACTIONS = [
   'help', 'list', 'show', 'plan',
   'create', 'set_name', 'set_persona',
   'add_members', 'remove_members',
-  'link', 'unlink', 'duplicate',
+  'link', 'unlink', 'duplicate', 'bind', 'unbind',
 ]
 
 const HELP = {
@@ -50,6 +50,7 @@ const HELP = {
     'Agent-created edges must carry a why (<= 80 chars).',
     'A save fills members with the whole requires closure and records skill anchors.',
     'Deleting a role is not available here; it is a UI-only action.',
+    'bind attaches the current session to a role; unbind returns it to native behaviour.',
   ],
 }
 
@@ -141,6 +142,23 @@ export function createRoleGraphApi(deps) {
       throw new RoleGraphError('UNKNOWN_ACTION', `unknown action "${String(action)}"; use action="help"`)
     }
     if (action === 'help') return { ok: true, action, result: HELP }
+
+    if (action === 'bind') {
+      if (typeof context.bindSession !== 'function') {
+        throw new RoleGraphError('NOT_AVAILABLE', 'this host cannot bind a session to a role')
+      }
+      const selected = await load(input.role)
+      const bound = await context.bindSession(selected)
+      return { ok: true, action, result: bound }
+    }
+
+    if (action === 'unbind') {
+      if (typeof context.clearSession !== 'function') {
+        throw new RoleGraphError('NOT_AVAILABLE', 'this host cannot unbind a session')
+      }
+      const cleared = await context.clearSession()
+      return { ok: true, action, result: { cleared } }
+    }
 
     if (action === 'plan') {
       const repo = await repository(context)

@@ -230,3 +230,44 @@ test('a stale revision surfaces as a store conflict and nothing is lost', async 
   )
   assert.equal((await store.read(id)).name, 'r2')
 })
+
+// --- session binding -----------------------------------------------------
+
+test('bind delegates to the host and reports what it installed', async () => {
+  const handler = api()
+  const created = await handler.handle({ action: 'create', name: 'r', add: ['a'] })
+  let bound
+  const result = await handler.handle(
+    { action: 'bind', role: 'r' },
+    {
+      bindSession: async role => {
+        bound = role.id
+        return { sessionId: 'sess_1', roleId: role.id, runtime: 1, shadowed: 2, persona: false }
+      },
+    },
+  )
+  assert.equal(bound, created.result.role.id)
+  assert.deepEqual(result.result, { sessionId: 'sess_1', roleId: created.result.role.id, runtime: 1, shadowed: 2, persona: false })
+})
+
+test('bind without a host hook is refused', async () => {
+  const handler = api()
+  await handler.handle({ action: 'create', name: 'r' })
+  await expectCode(handler.handle({ action: 'bind', role: 'r' }), 'NOT_AVAILABLE')
+})
+
+test('unbind reports whether a binding was removed', async () => {
+  const handler = api()
+  const result = await handler.handle({ action: 'unbind' }, { clearSession: async () => true })
+  assert.deepEqual(result.result, { cleared: true })
+})
+
+test('bind of an unknown role fails before touching the session', async () => {
+  const handler = api()
+  let called = false
+  await assert.rejects(
+    () => handler.handle({ action: 'bind', role: 'nope' }, { bindSession: async () => { called = true } }),
+    error => error.code === 'ROLE_NOT_FOUND',
+  )
+  assert.equal(called, false)
+})
