@@ -30,6 +30,7 @@ import { computeHealth } from './graph.js'
 import { BindingStore, bindingsFileFor } from './bindings.js'
 import { restoreBoundRoles, sessionIdOf } from './lifecycle.js'
 import { installRole } from './runtime.js'
+import { createDebouncedTask } from './scheduler.js'
 import { RoleStore } from './store.js'
 
 /** Cordis plugin name. */
@@ -73,7 +74,6 @@ export function apply(ctx, config = {}) {
   // Capture services once: after unload the context is inactive and even
   // ctx.logger may throw on access.
   const logger = ctx.logger
-  let rebuildTimer
   // Timers outlive Cordis contexts. Everything scheduled off a timer must check
   // this flag before touching a service, or it will throw into an inactive
   // context and (because nothing catches a timer callback) take down the host.
@@ -266,44 +266,39 @@ export function apply(ctx, config = {}) {
     })()
     return () => {
       active = false
-      clearTimeout(rebuildTimer)
+      rebuild.cancel()
       for (const sessionId of [...generations.keys()]) disposeSession(sessionId)
     }
   }, 'skill-loom: restore bound roles and release generations')
 
   // Skills appearing or disappearing change what a role must shadow. Rebuilding
-  // is debounced so a burst of provider updates costs one pass.
-  ctx.on('skills/change', () => {
-    if (!active) return
-    clearTimeout(rebuildTimer)
-    rebuildTimer = setTimeout(() => {
-      if (!active) return
-      void (async () => {
-        try {
-          for (const sessionId of [...generations.keys()]) {
-            if (!active) return
-            const agent = ctx.agents.get(sessionId)
-            if (agent === undefined) {
-              disposeSession(sessionId)
-              continue
-            }
-            const role = await boundRole(sessionId)
-            if (role === undefined) {
-              disposeSession(sessionId)
-              continue
-            }
-            try {
-              await install(agent, sessionId, role)
-            } catch {
-              // Keep the previous generation if the rebuild fails.
-            }
-          }
-        } catch (error) {
-          // A rebuild must never escape into the timer.
-          logger?.warn?.(`skill-loom: rebuild after skills/change failed: ${String(error)}`)
+  // is debounced so a burst of provider updates costs one pass, and the task
+  // refuses to run once this instance is unloaded.
+  const rebuild = createDebouncedTask({
+    delay: 250,
+    isActive: () => active,
+    onError: error => logger?.warn?.(`skill-loom: rebuild after skills/change failed: ${String(error)}`),
+    async run() {
+      for (const sessionId of [...generations.keys()]) {
+        if (!active) return
+        const agent = ctx.agents.get(sessionId)
+        if (agent === undefined) {
+          disposeSession(sessionId)
+          continue
         }
-      })()
-    }, 250)
-    rebuildTimer.unref?.()
+        const role = await boundRole(sessionId)
+        if (role === undefined) {
+          disposeSession(sessionId)
+          continue
+        }
+        try {
+          await install(agent, sessionId, role)
+        } catch {
+          // Keep the previous generation if the rebuild of one session fails.
+        }
+      }
+    },
   })
+
+  ctx.on('skills/change', () => rebuild.trigger())
 }

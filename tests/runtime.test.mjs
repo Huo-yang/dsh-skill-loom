@@ -116,3 +116,34 @@ test('a role that excludes a missing skill still yields the same shadows', () =>
   install({ skills, repo: repo({ a: { description: 'A' } }), role: role({ members: [] }) })
   assert.deepEqual([...skills.registrations.keys()], ['a'])
 })
+
+test('dispose is idempotent', () => {
+  const skills = fakeSkills()
+  const generation = install({ skills })
+  generation.dispose()
+  assert.doesNotThrow(() => generation.dispose())
+  assert.equal(skills.registrations.size, 0)
+})
+
+test('a throwing disposer does not stop the remaining teardown', () => {
+  const skills = { register: name => () => { throw new Error('teardown boom') } }
+  const generation = install({ skills })
+  assert.doesNotThrow(() => generation.dispose())
+})
+
+test('one unregisterable skill does not abort the others', () => {
+  const registrations = new Map()
+  let calls = 0
+  const skills = {
+    register(definition) {
+      calls += 1
+      if (definition.name === 'b') throw new Error('registry refused')
+      registrations.set(definition.name, definition)
+      return () => registrations.delete(definition.name)
+    },
+  }
+  const generation = install({ skills })
+  assert.equal(calls >= 2, true)
+  assert.deepEqual([...registrations.keys()], ['c'])
+  assert.deepEqual(generation.shadowed, ['c'])
+})

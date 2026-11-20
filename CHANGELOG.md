@@ -18,6 +18,10 @@
 - 插件卸载后防抖定时器仍访问宿主服务，导致 `fatal load failure`。现在定时器与事件回调都带存活检查，异常不再逃逸到事件循环。
 - 绑定文件曾写到 `$DSH_HOME/bindings.json`，已改为 `$DSH_HOME/roles/bindings.json`。
 
+### 测试 / Tests
+
+- 111 条测试，其中生命周期相关 12 条：防抖存活、卸载后不执行、取消竞态、teardown 幂等与容错。
+
 ### 说明 / Notes
 
 - M1 与 M2 运行时已在真实 DSH 0.2.2-rc.5 验证：绑定后宿主目录清空、解绑后恢复。

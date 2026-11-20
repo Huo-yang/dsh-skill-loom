@@ -413,3 +413,33 @@ test('one missing dependency greys out every node that requires it', () => {
   assert.deepEqual(health.gray.map(row => row.name).sort(), ['a', 'e', 'f'])
   assert.deepEqual(health.runtime, ['c'])
 })
+test('a self-edge is reported as a cycle', () => {
+  const graph = role({ members: ['a'], edges: [{ from: 'a', to: 'a' }] })
+  assert.deepEqual(findCycles(graph), [['a', 'a']])
+})
+
+test('duplicate identical edges do not double-count', () => {
+  const graph = role({
+    members: ['a'],
+    edges: [
+      { from: 'a', to: 'b' },
+      { from: 'a', to: 'b' },
+    ],
+  })
+  assert.deepEqual([...requiresClosure(graph)].sort(), ['a', 'b'])
+  assert.deepEqual(findCycles(graph), [])
+})
+
+test('resolving a role never mutates it', () => {
+  const graph = role({
+    members: ['a', 'b'],
+    edges: [{ from: 'a', to: 'b' }],
+    conflicts: [['x', 'y']],
+    anchors: { a: { path: '/a' } },
+  })
+  const before = JSON.parse(JSON.stringify(graph))
+  computeHealth(graph, repo('a'))
+  planRole(graph, repo('a'), { exists: () => true })
+  validateRole(graph, repo('a'), { source: 'agent', exists: () => true })
+  assert.deepEqual(graph, before)
+})
