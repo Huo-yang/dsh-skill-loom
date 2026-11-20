@@ -13,8 +13,6 @@
  * @module dsh-skill-loom/http
  */
 
-import { readFile } from 'node:fs/promises'
-
 import { computeHealth, explainMissing, planRole } from './graph.js'
 
 /** Prefix every route lives under. */
@@ -33,11 +31,6 @@ const json = (body, status = 200) => new Response(JSON.stringify(body), {
   headers: { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store' },
 })
 
-/** Plain text, for a file the browser should render as-is in its own tab. */
-const plainText = (body, status = 200) => new Response(body, {
-  status,
-  headers: { 'content-type': 'text/plain; charset=utf-8', 'cache-control': 'no-store' },
-})
 
 /**
  * Reject a cross-origin write.
@@ -199,20 +192,6 @@ export function createResource({ store, catalog, exists, mutate, sessions }) {
             path: skill.path,
           })),
         })
-      }
-
-      const contentMatch = /^skills\/([^/]+)\/content$/.exec(rest)
-      if (contentMatch !== null) {
-        if (method !== 'GET') return json({ error: 'method-not-allowed' }, 405)
-        const skillName = decodeURIComponent(contentMatch[1])
-        const skill = repo.get(skillName)
-        if (skill === undefined || typeof skill.path !== 'string') return json({ error: 'skill-not-found' }, 404)
-        try {
-          const body = await readFile(skill.path, 'utf8')
-          return plainText(body)
-        } catch {
-          return json({ error: 'unreadable' }, 500)
-        }
       }
 
       if (rest === 'sessions') {

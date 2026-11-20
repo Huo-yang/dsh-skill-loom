@@ -1236,68 +1236,34 @@ window.__ModuleLoader__.load({
       ]
       if (info?.description) children.push(h('div', { key: 'desc', style: { ...styles.muted, marginTop: 6 } }, info.description))
       if (info?.path !== undefined) {
+        // One entry, no shortcut: the user always picks the application, so a
+        // stray click never launches something they did not choose.
+        const dir = folderOf(info.path)
         children.push(h('div', { key: 'open', style: { marginTop: 10 } },
-          h('button', {
-            key: 'view',
-            style: { ...styles.button(true), marginLeft: 0 },
-            title: info.path,
-            onClick: () => {
-              // A plain-text route in its own tab: the browser renders the .md as
-              // text, and the panel stays a list of facts.
-              const url = '/skill-loom/skills/' + encodeURIComponent(skillName) + '/content'
-              const opened = globalThis.open(url, '_blank', 'noopener')
-              if (opened === null) onOpenFailed('浏览器阻止了新标签页，请允许本站弹出窗口')
-            },
-          }, '查看 .md'),
           h('button', {
             key: 'openwith',
             style: { ...styles.button(!appsLoading), marginLeft: 0 },
-            title: '用已安装的应用打开技能所在的文件夹',
+            title: dir,
             disabled: appsLoading,
             onClick: async () => {
-              const list = await loadApps()
-              if (list.length === 0) {
-                onOpenFailed('没有可用的应用')
-                return
-              }
-              let remembered
-              try {
-                remembered = globalThis.localStorage?.getItem('skill-loom:open-with') ?? undefined
-              } catch {
-                remembered = undefined
-              }
-              const pick = list.find(app => appKey(app) === remembered) ?? list[0]
-              await launchInApp(appKey(pick), folderOf(info.path))
+              await loadApps()
+              setPickerOpen(value => !value)
             },
-          }, '在应用中打开'),
-          (apps ?? []).length > 1
-            ? h('button', {
-                key: 'pick',
-                style: { ...styles.button(true), marginLeft: 0, padding: '0 6px' },
-                title: '选择应用',
-                onClick: async () => {
-                  await loadApps()
-                  setPickerOpen(value => !value)
-                },
-              }, '▾')
-            : null,
-        ))
-
+          }, pickerOpen ? '选择应用 ▴' : '在应用中打开 ▾')))
         if (pickerOpen) {
-          children.push(h('div', { key: 'applist', style: { ...styles.roleMenu, position: 'static', marginTop: 6, maxHeight: 160 } },
-            (apps ?? []).map(app => h('div', {
-              key: appKey(app),
-              style: { ...styles.roleRow, cursor: 'pointer' },
-              onClick: () => {
-                try {
-                  globalThis.localStorage?.setItem('skill-loom:open-with', appKey(app))
-                } catch {
-                  // A blocked storage just means no remembered choice.
-                }
-                setPickerOpen(false)
-                void launchInApp(appKey(app), folderOf(info.path))
-              },
-            }, appLabel(app)))))
+          children.push(h('div', {
+            key: 'applist',
+            style: { ...styles.roleMenu, position: 'static', marginTop: 6, maxHeight: 180 },
+          }, (apps ?? []).length === 0
+            ? h('div', { key: 'e', style: styles.empty }, '没有可用的应用')
+            : (apps ?? []).map(app => h('div', {
+                key: appKey(app),
+                style: { ...styles.roleRow, cursor: 'pointer' },
+                onClick: () => {
+                  setPickerOpen(false)
+                  void launchInApp(appKey(app), dir)
+                },
+              }, appLabel(app)))))
         }
       }
       children.push(h('div', { key: 'member', style: styles.section },
