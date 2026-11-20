@@ -115,11 +115,14 @@ window.__ModuleLoader__.load({
   border: .5px solid var(--dsw-alias-border-l3, rgba(127,127,127,.28));
   box-shadow: 0 10px 28px rgba(0,0,0,.18); }
 .loom-menu--float { position: absolute; top: calc(100% + 4px); right: 0; left: auto; z-index: 30; }
-.loom-menu-item { display: flex; align-items: center; min-height: 30px; padding: 0 8px;
+.loom-menu-item { display: flex; align-items: center; min-height: 30px; padding: 4px 8px;
   border-radius: var(--dsw-radius-sm, 6px); font-size: 13px; line-height: 20px; cursor: pointer;
   color: var(--dsw-alias-label-primary, inherit); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .loom-menu-check { margin-left: 8px; flex: none; color: var(--dsw-alias-label-primary, currentColor); }
 .loom-menu-label { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.loom-menu-text { display: flex; flex-direction: column; min-width: 0; }
+.loom-menu-desc { font-size: 11px; line-height: 16px; color: var(--dsw-alias-label-tertiary, currentColor);
+  opacity: .85; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .loom-menu-item:hover { background: var(--dsw-alias-bg-multi-select, rgba(127,127,127,.16)); }
 .loom-menu-empty { padding: 6px 10px; font-size: 12px; opacity: .6; }
 .loom-option { display: inline-flex; align-items: center; gap: 4px; min-height: 28px; padding: 0 8px;
@@ -1337,18 +1340,29 @@ window.__ModuleLoader__.load({
         open
           ? h('div', { key: 'menu', className: 'loom-menu loom-menu--float', style: { left: 'auto', right: 0 } }, [
             h('div', { key: 'none', className: 'loom-menu-item', onClick: () => void choose(undefined) }, [
-              h('span', { key: 'l', className: 'loom-menu-label' }, '默认（全部技能）'),
+              h('span', { key: 't', className: 'loom-menu-text' }, [
+                h('span', { key: 'l', className: 'loom-menu-label' }, '默认'),
+                h('span', { key: 'd', className: 'loom-menu-desc' }, '不收窄技能，注入全部已加载技能'),
+              ]),
               bound === undefined ? h('span', { key: 'c' }, check) : null,
             ]),
-            ...roles.map(role => h('div', {
-              key: role.id,
-              className: 'loom-menu-item',
-              title: role.name,
-              onClick: () => void choose(role.id),
-            }, [
-              h('span', { key: 'l', className: 'loom-menu-label' }, role.name),
-              bound === role.id ? h('span', { key: 'c' }, check) : null,
-            ])),
+            ...roles.map(role => {
+              const total = Array.isArray(role.runtime) ? role.runtime.length : 0
+              const missing = Array.isArray(role.red) ? role.red.length : 0
+              const detail = total + ' 个技能可用' + (missing > 0 ? ' · ' + missing + ' 个缺失' : '')
+              return h('div', {
+                key: role.id,
+                className: 'loom-menu-item',
+                title: role.name,
+                onClick: () => void choose(role.id),
+              }, [
+                h('span', { key: 't', className: 'loom-menu-text' }, [
+                  h('span', { key: 'l', className: 'loom-menu-label' }, role.name),
+                  h('span', { key: 'd', className: 'loom-menu-desc' }, detail),
+                ]),
+                bound === role.id ? h('span', { key: 'c' }, check) : null,
+              ])
+            }),
           ])
           : null,
       ])
