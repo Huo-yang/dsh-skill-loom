@@ -137,7 +137,7 @@ window.__ModuleLoader__.load({
       return { width, height, positions, roleLevel }
     }
 
-    function Graph({ role, plan, selected, onSelect, onCreateEdge, onRemoveEdge, onRemovalDrag, onRemoveDrop, onDropOnNode }) {
+    function Graph({ role, plan, selected, onSelect, onCreateEdge, onRemoveEdge, onRemovalDrag, onRemoveDrop, onDropOnNode, onDropMissed }) {
       const geom = useMemo(() => layout(role, plan), [role, plan])
       const svgRef = useRef(undefined)
       const [drag, setDrag] = useState(undefined)
@@ -218,7 +218,13 @@ window.__ModuleLoader__.load({
         if (drag.moved) {
           onRemovalDrag(false)
           const removed = onRemoveDrop(drag.from, event.clientX, event.clientY) === true
-          if (!removed && target !== undefined && target !== drag.from) onCreateEdge(drag.from, target)
+          if (removed) {
+            // handled by the trash zone
+          } else if (target !== undefined && target !== drag.from) {
+            onCreateEdge(drag.from, target)
+          } else {
+            onDropMissed(drag.from)
+          }
         } else {
           onSelect(drag.from === '__role__' ? undefined : drag.from)
         }
@@ -734,6 +740,7 @@ window.__ModuleLoader__.load({
                   onRemoveEdge: edge => void send('edges', { action: 'unlink', from: edge.from, to: edge.to }),
                   onRemovalDrag: setRemovalActive,
                   onRemoveDrop: dropToRemove,
+                  onDropMissed: from => setNotice('松手时不在任何节点上，未建立依赖：' + from),
                 })
               : h('div', { key: 'empty', style: { ...styles.empty, padding: 24 } },
                 detail.status === 'error' ? detail.error
