@@ -323,6 +323,31 @@ export function apply(ctx, config = {}) {
           return false
         }
       },
+      sessions: {
+        list: async () => {
+          const rows = []
+          for (const agent of ctx.agents.list()) {
+            const sessionId = sessionIdOf(agent)
+            if (sessionId === undefined) continue
+            rows.push({
+              sessionId,
+              cwd: agent.session.header.cwd,
+              roleId: await bindings.get(sessionId),
+            })
+          }
+          return rows
+        },
+        bind: async (sessionId, role) => {
+          await bindings.set(sessionId, role.id)
+          const agent = ctx.agents.get(sessionId)
+          if (agent !== undefined) await install(agent, sessionId, role)
+          return { sessionId, roleId: role.id, live: agent !== undefined }
+        },
+        unbind: async sessionId => {
+          disposeSession(sessionId)
+          return { sessionId, cleared: await bindings.clear(sessionId) }
+        },
+      },
     })),
   }), 'skill-loom: http routes'))
   ctx.on('agent/created', async ({ agent }) => {

@@ -121,41 +121,84 @@ window.__ModuleLoader__.load({
       return { width, height, positions, roleLevel }
     }
 
-    function Graph({ role, plan, health, selected, onSelect }) {
-      const state = useMemo(() => {
-        const { width, height, positions } = layout(role, plan)
-        return { width, height, positions }
-      }, [role, plan])
+    function Graph({ role, plan, selected, onSelect, onCreateEdge, onBindSession }) {
+      const geom = useMemo(() => layout(role, plan), [role, plan])
+      const svgRef = useRef(undefined)
+      const [drag, setDrag] = useState(undefined)
+      const [dropActive, setDropActive] = useState(false)
 
       const red = new Set(plan.red ?? [])
       const gray = new Set((plan.gray ?? []).map(row => row.name))
       const runtime = new Set(plan.runtime ?? [])
-      const colorOf = name => (red.has(name) ? COLORS.red : gray.has(name) ? COLORS.gray : runtime.has(name) ? COLORS.runtime : COLORS.member)
+      const colorOf = name => (red.has(name) ? COLORS.red : gray.has(name) ? COLORS.gray
+        : runtime.has(name) ? COLORS.runtime : COLORS.member)
+
+      const pointOf = event => {
+        const rect = svgRef.current?.getBoundingClientRect()
+        if (rect === undefined) return { x: 0, y: 0 }
+        return { x: event.clientX - rect.left, y: event.clientY - rect.top }
+      }
+      const nodeAt = (x, y) => {
+        for (const [name, position] of geom.positions) {
+          if (Math.abs(x - position.x) <= NODE_W / 2 && y >= position.y - NODE_H && y <= position.y) return name
+        }
+        return undefined
+      }
+
+      const beginLink = name => event => {
+        if (event.button !== 0) return
+        event.stopPropagation()
+        svgRef.current?.setPointerCapture?.(event.pointerId)
+        const point = pointOf(event)
+        setDrag({ from: name, ox: point.x, oy: point.y, x: point.x, y: point.y, moved: false })
+      }
+      const moveLink = event => {
+        if (drag === undefined) return
+        const point = pointOf(event)
+        const moved = drag.moved || Math.abs(point.x - drag.ox) + Math.abs(point.y - drag.oy) > 6
+        setDrag({ ...drag, x: point.x, y: point.y, moved })
+      }
+      const endLink = event => {
+        if (drag === undefined) return
+        svgRef.current?.releasePointerCapture?.(event.pointerId)
+        const point = pointOf(event)
+        const target = nodeAt(point.x, point.y)
+        if (drag.moved) {
+          if (target !== undefined && target !== drag.from) onCreateEdge(drag.from, target)
+        } else {
+          onSelect(drag.from === '__role__' ? undefined : drag.from)
+        }
+        setDrag(undefined)
+      }
 
       const edges = []
       for (const name of plan.members ?? []) edges.push({ from: '__role__', to: name, include: true })
-      for (const edge of role.edges ?? []) edges.push({ from: edge.from, to: edge.to, why: edge.why })
+      for (const edge of role.edges ?? []) edges.push({ from: edge.from, to: edge.to })
 
-      const path = edge => {
-        const a = state.positions.get(edge.from)
-        const b = state.positions.get(edge.to)
+      const pathOf = edge => {
+        const a = geom.positions.get(edge.from)
+        const b = geom.positions.get(edge.to)
         if (a === undefined || b === undefined) return undefined
-        const y1 = a.y
-        const y2 = b.y - NODE_H
-        const mid = (y1 + y2) / 2
-        return `M ${a.x} ${y1} C ${a.x} ${mid}, ${b.x} ${mid}, ${b.x} ${y2}`
+        const mid = (a.y + b.y - NODE_H) / 2
+        return `M ${a.x} ${a.y} C ${a.x} ${mid}, ${b.x} ${mid}, ${b.x} ${b.y - NODE_H}`
       }
 
-      const nodes = [{ name: '__role__', label: role.name, level: state.roleLevel, kind: 'role' },
+      const nodes = [{ name: '__role__', label: role.name, kind: 'role' },
         ...(plan.members ?? []).map(name => ({ name, label: name, kind: 'skill' }))]
 
+      const sourcePos = drag === undefined ? undefined : geom.positions.get(drag.from)
+
       return h('svg', {
-        viewBox: `0 0 ${state.width} ${state.height}`,
-        width: state.width,
-        height: state.height,
+        ref: svgRef,
+        viewBox: `0 0 ${geom.width} ${geom.height}`,
+        width: geom.width,
+        height: geom.height,
         role: 'img',
         'aria-label': `${role.name} 的依赖图`,
-        style: { display: 'block', margin: '0 auto' },
+        style: { display: 'block', margin: '0 auto', touchAction: 'none' },
+        onPointerMove: moveLink,
+        onPointerUp: endLink,
+        onPointerCancel: () => setDrag(undefined),
       },
       h('defs', null, h('marker', {
         id: 'loom-arrow', viewBox: '0 0 8 8', refX: 7, refY: 4,
@@ -163,7 +206,7 @@ window.__ModuleLoader__.load({
       }, h('path', { d: 'M0,0 L8,4 L0,8 z', fill: 'currentColor', opacity: 0.55 }))),
 
       edges.map((edge, index) => {
-        const d = path(edge)
+        const d = pathOf(edge)
         if (d === undefined) return null
         return h('path', {
           key: `e${index}`,
@@ -176,23 +219,48 @@ window.__ModuleLoader__.load({
         })
       }),
 
+      drag !== undefined && drag.moved && sourcePos !== undefined
+        ? h('line', {
+            x1: sourcePos.x, y1: sourcePos.y, x2: drag.x, y2: drag.y,
+            stroke: 'currentColor', strokeOpacity: 0.55, strokeDasharray: '5 4', strokeWidth: 1.4,
+          })
+        : null,
+
       nodes.map(node => {
-        const position = state.positions.get(node.name)
+        const position = geom.positions.get(node.name)
         if (position === undefined) return null
         const active = selected === node.name
         const stateColor = node.kind === 'role' ? COLORS.role : colorOf(node.name)
+        const isDropTarget = node.kind === 'role' && dropActive
         return h('g', {
           key: node.name,
           transform: `translate(${position.x - NODE_W / 2}, ${position.y - NODE_H})`,
-          onClick: () => onSelect(node.kind === 'role' ? undefined : node.name),
-          style: { cursor: node.kind === 'role' ? 'default' : 'pointer' },
+          onPointerDown: beginLink(node.name),
+          style: { cursor: 'grab' },
+          ...(node.kind === 'role'
+            ? {
+                onDragOver: event => {
+                  event.preventDefault()
+                  event.dataTransfer.dropEffect = 'link'
+                  setDropActive(true)
+                },
+                onDragLeave: () => setDropActive(false),
+                onDrop: event => {
+                  event.preventDefault()
+                  setDropActive(false)
+                  const sessionId = event.dataTransfer.getData('text/plain')
+                  if (sessionId !== '') onBindSession(sessionId)
+                },
+              }
+            : {}),
         },
         h('rect', {
           width: NODE_W, height: NODE_H, rx: 6,
           fill: 'var(--dsw-alias-bg-layer-1, #ffffff)',
-          stroke: active ? COLORS.role : 'currentColor',
-          strokeOpacity: active ? 1 : 0.25,
-          strokeWidth: active ? 2 : 1,
+          stroke: isDropTarget || active ? COLORS.role : 'currentColor',
+          strokeOpacity: isDropTarget || active ? 1 : 0.25,
+          strokeWidth: isDropTarget || active ? 2 : 1,
+          strokeDasharray: isDropTarget ? '5 3' : undefined,
         }),
         h('circle', { cx: 14, cy: NODE_H / 2, r: 4, fill: stateColor }),
         h('text', {
@@ -201,7 +269,6 @@ window.__ModuleLoader__.load({
         }, node.label.length > 17 ? `${node.label.slice(0, 16)}…` : node.label))
       }))
     }
-
     function RolePage() {
       const [list, setList] = useState({ status: 'loading', roles: [], skills: [] })
       const [selectedRole, setSelectedRole] = useState(undefined)
@@ -212,6 +279,7 @@ window.__ModuleLoader__.load({
       const [filter, setFilter] = useState('')
       const [linkTarget, setLinkTarget] = useState('')
       const [panelOpen, setPanelOpen] = useState(true)
+      const [sessions, setSessions] = useState([])
       const [cardPos, setCardPos] = useState(() => {
         try {
           const saved = JSON.parse(globalThis.localStorage?.getItem('skill-loom:card') ?? 'null')
@@ -311,7 +379,19 @@ window.__ModuleLoader__.load({
         }
       }, [])
 
+      const loadSessions = useCallback(async () => {
+        try {
+          const response = await fetch(`${API}/sessions`, { headers: { accept: 'application/json' } })
+          if (!response.ok) return
+          const body = await response.json()
+          setSessions(body.sessions ?? [])
+        } catch {
+          // The session tray is an affordance, not a requirement.
+        }
+      }, [])
+
       useEffect(() => { void loadList() }, [loadList])
+      useEffect(() => { void loadSessions() }, [loadSessions])
 
       useEffect(() => {
         if (selectedRole === undefined) {
@@ -354,6 +434,27 @@ window.__ModuleLoader__.load({
         }
       }
 
+      const bindSession = async sessionId => {
+        const current = detail.role
+        if (current === undefined) return
+        setPending(true)
+        setError(undefined)
+        try {
+          const response = await fetch(`${API}/sessions/bind`, {
+            method: 'POST',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({ sessionId, roleId: current.id }),
+          })
+          const body = await response.json().catch(() => ({}))
+          if (!response.ok) throw new Error(body.message ?? body.error ?? `HTTP ${response.status}`)
+          await Promise.all([loadSessions(), loadDetail(current.id)])
+        } catch (cause) {
+          setError(String(cause?.message ?? cause))
+        } finally {
+          setPending(false)
+        }
+      }
+
       const roleReady = detail.status === 'ready'
       const role = roleReady ? detail.role : undefined
       const plan = roleReady ? detail.plan : undefined
@@ -382,7 +483,18 @@ window.__ModuleLoader__.load({
             },
           }, [
             roleReady
-              ? h(Graph, { key: 'graph', role, plan, selected: selectedSkill, onSelect: setSelectedSkill })
+              ? h(Graph, {
+                  key: 'graph',
+                  role,
+                  plan,
+                  selected: selectedSkill,
+                  onSelect: setSelectedSkill,
+                  onCreateEdge: (from, to) => {
+                    if (from === '__role__') void send('members', { action: 'add_members', add: [to] })
+                    else void send('edges', { action: 'link', from, to })
+                  },
+                  onBindSession: sessionId => void bindSession(sessionId),
+                })
               : h('div', { key: 'empty', style: { ...styles.empty, padding: 24 } },
                 detail.status === 'error' ? detail.error
                   : detail.status === 'loading' ? '加载中…'
@@ -414,6 +526,23 @@ window.__ModuleLoader__.load({
             style: { ...styles.button(!panelOpen), marginLeft: 0, marginTop: 8 },
             onClick: () => setPanelOpen(open => !open),
           }, panelOpen ? '收起面板' : '展开面板'),
+          h('div', { style: { ...styles.sectionTitle, marginTop: 10 } }, `会话 · ${sessions.length}`),
+          h('div', { style: { maxHeight: 130, overflowY: 'auto', marginTop: 2 } }, sessions.map(session => h('div', {
+            key: session.sessionId,
+            draggable: true,
+            onDragStart: event => {
+              event.dataTransfer.setData('text/plain', session.sessionId)
+              event.dataTransfer.effectAllowed = 'link'
+            },
+            style: { ...styles.item(false), cursor: 'grab' },
+            title: '拖到上方角色节点即可绑定该会话',
+          }, [
+            h('div', { key: 'n', style: styles.itemName }, session.sessionId.slice(0, 8)),
+            h('div', { key: 'm', style: styles.meta },
+              roleReady && session.roleId === role?.id
+                ? '已绑定本角色'
+                : session.roleId !== undefined && session.roleId !== null ? '已绑定其他角色' : '未绑定'),
+          ]))),
           ),
 
         panelOpen && roleReady

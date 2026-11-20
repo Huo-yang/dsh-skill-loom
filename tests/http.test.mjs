@@ -333,3 +333,71 @@ test('edge actions are not accepted on the member route', async () => {
   const response = await handler(post(`/skill-loom/roles/${UUID_A}/members`, { action: 'link', from: 'a', to: 'b' }))
   assert.equal(response.status, 400)
 })
+// --- sessions -------------------------------------------------------------
+
+const sessionsDep = () => ({
+  list: async () => [{ sessionId: 'sess_1', roleId: UUID_A }, { sessionId: 'sess_2' }],
+  bind: async (sessionId, role) => ({ sessionId, roleId: role.id, live: false }),
+  unbind: async sessionId => ({ sessionId, cleared: true }),
+})
+
+test('the session list comes from the host hook', async () => {
+  const handler = createResource({
+    store: storeOf(role()),
+    catalog: catalogOf({}),
+    sessions: sessionsDep(),
+  })
+  const response = await handler(get('/skill-loom/sessions'))
+  assert.equal(response.status, 200)
+  const body = await response.json()
+  assert.deepEqual(body.sessions.map(row => row.sessionId), ['sess_1', 'sess_2'])
+})
+
+test('binding a session resolves the role before calling the hook', async () => {
+  const calls = []
+  const handler = createResource({
+    store: storeOf(role()),
+    catalog: catalogOf({}),
+    sessions: {
+      ...sessionsDep(),
+      bind: async (sessionId, loaded) => {
+        calls.push([sessionId, loaded.id])
+        return { sessionId, roleId: loaded.id, live: false }
+      },
+    },
+  })
+  const response = await handler(post('/skill-loom/sessions/bind', { sessionId: 'sess_3', roleId: UUID_A }))
+  assert.equal(response.status, 200)
+  assert.deepEqual(calls, [['sess_3', UUID_A]])
+})
+
+test('binding to an unknown role is a 404', async () => {
+  const handler = createResource({ store: storeOf(role()), catalog: catalogOf({}), sessions: sessionsDep() })
+  const response = await handler(post('/skill-loom/sessions/bind', { sessionId: 'sess_3', roleId: UUID_B }))
+  assert.equal(response.status, 404)
+})
+
+test('binding without a session id is refused', async () => {
+  const handler = createResource({ store: storeOf(role()), catalog: catalogOf({}), sessions: sessionsDep() })
+  const response = await handler(post('/skill-loom/sessions/bind', { roleId: UUID_A }))
+  assert.equal(response.status, 400)
+})
+
+test('unbinding reports the host result', async () => {
+  const handler = createResource({ store: storeOf(role()), catalog: catalogOf({}), sessions: sessionsDep() })
+  const response = await handler(post('/skill-loom/sessions/unbind', { sessionId: 'sess_1' }))
+  assert.equal(response.status, 200)
+  assert.deepEqual((await response.json()).result, { sessionId: 'sess_1', cleared: true })
+})
+
+test('a cross-origin bind is refused', async () => {
+  const handler = createResource({ store: storeOf(role()), catalog: catalogOf({}), sessions: sessionsDep() })
+  const response = await handler(post('/skill-loom/sessions/bind', { sessionId: 's', roleId: UUID_A }, { origin: 'https://evil.example' }))
+  assert.equal(response.status, 403)
+})
+
+test('a host without the session hook reports it instead of crashing', async () => {
+  const handler = createResource({ store: storeOf(role()), catalog: catalogOf({}) })
+  assert.equal((await handler(get('/skill-loom/sessions'))).status, 405)
+  assert.equal((await handler(post('/skill-loom/sessions/bind', { sessionId: 's' }))).status, 405)
+})

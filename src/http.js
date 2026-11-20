@@ -82,7 +82,7 @@ function summarize(role, repo, exists) {
  * @param {(input: object) => Promise<object>} [deps.mutate] - action dispatch (agent action layer).
  * @returns {(request: Request) => Promise<Response>} the resource.
  */
-export function createResource({ store, catalog, exists, mutate }) {
+export function createResource({ store, catalog, exists, mutate, sessions }) {
   async function readBody(request) {
     const declared = Number(request.headers.get('content-length') ?? '0')
     if (Number.isFinite(declared) && declared > MAX_BODY_BYTES) return { tooLarge: true }
@@ -168,6 +168,34 @@ export function createResource({ store, catalog, exists, mutate }) {
             provider: skill.provider,
           })),
         })
+      }
+
+      if (rest === 'sessions') {
+        if (typeof sessions?.list !== 'function') return json({ error: 'sessions-unavailable' }, 405)
+        if (method === 'POST') return json({ error: 'method-not-allowed' }, 405)
+        return json({ sessions: await sessions.list() })
+      }
+
+      if (rest === 'sessions/bind' || rest === 'sessions/unbind') {
+        if (method !== 'POST') return json({ error: 'method-not-allowed' }, 405)
+        if (typeof sessions?.bind !== 'function') return json({ error: 'sessions-unavailable' }, 405)
+        if (!isLocalOrigin(request)) return json({ error: 'cross-origin' }, 403)
+
+        const body = await readBody(request)
+        if (body.tooLarge === true) return json({ error: 'body-too-large' }, 413)
+        if (body.invalid === true) return json({ error: 'invalid-json' }, 400)
+        const input = body.value
+        const sessionId = typeof input?.sessionId === 'string' ? input.sessionId : undefined
+        if (sessionId === undefined) return json({ error: 'session-required' }, 400)
+
+        if (rest === 'sessions/unbind') {
+          return json({ ok: true, result: await sessions.unbind(sessionId) })
+        }
+        const roleId = typeof input.roleId === 'string' ? input.roleId : undefined
+        if (roleId === undefined) return json({ error: 'role-required' }, 400)
+        const role = await store.read(roleId)
+        if (role === undefined) return json({ error: 'role-not-found', id: roleId }, 404)
+        return json({ ok: true, result: await sessions.bind(sessionId, role) })
       }
 
       const memberMatch = /^roles\/([^/]+)\/members$/.exec(rest)
