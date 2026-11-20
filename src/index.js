@@ -31,6 +31,7 @@ import { BindingStore, bindingsFileFor } from './bindings.js'
 import { restoreBoundRoles, sessionIdOf } from './lifecycle.js'
 import { installRole } from './runtime.js'
 import { createDebouncedTask } from './scheduler.js'
+import { ROUTE_PREFIX, createResource } from './http.js'
 import { createOverrideRegistry, resolveCreatedRole } from './spawn.js'
 import { RoleStore } from './store.js'
 
@@ -282,6 +283,42 @@ export function apply(ctx, config = {}) {
     },
   })
   ctx.tools.register(roleSpawn)
+
+  // Read-only HTTP surface for the page. The web server is optional so the
+  // plugin still loads in profile shapes without a browser surface.
+  const webServer = ctx.get('webServer')
+  if (webServer !== undefined) {
+    ctx.effect(() => webServer.register({
+      kind: 'prefix',
+      path: ROUTE_PREFIX,
+      resource: createResource({
+        store,
+        // Union of the global layer and every live agent scope: the editor must
+        // not report a preset-mounted skill as missing just because no agent
+        // is answering an HTTP request.
+        catalog: async () => {
+          const byName = new Map((await ctx.skills.list({})).map(skill => [skill.name, skill]))
+          for (const agent of ctx.agents.list()) {
+            try {
+              for (const skill of await ctx.skills.list({ scope: agent })) {
+                if (!byName.has(skill.name)) byName.set(skill.name, skill)
+              }
+            } catch {
+              // A shutting-down agent must not break the page.
+            }
+          }
+          return byName
+        },
+        exists: path => {
+          try {
+            return existsSync(path)
+          } catch {
+            return false
+          }
+        },
+      }),
+    }), 'skill-loom: http routes')
+  }
 
   ctx.on('agent/created', async ({ agent }) => {
     if (!active) return
