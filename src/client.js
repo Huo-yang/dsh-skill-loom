@@ -656,9 +656,9 @@ window.__ModuleLoader__.load({
         }
         if (kind !== 'skill') return
         if (onRole) void send('members', { action: 'add_members', add: [value] })
-        // Dropping A onto B means A depends on B: the dragged skill is the
-        // dependent, the node it lands on is the dependency.
-        else if (value !== target) void send('edges', { action: 'reparent', from: value, to: target })
+        // A skill dragged in from the list only adds an edge; migrating an
+        // existing node's dependencies is the box-drag gesture below.
+        else if (value !== target) void send('edges', { action: 'link', from: value, to: target })
       }
 
       const roleReady = detail.status === 'ready'
