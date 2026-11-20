@@ -16,7 +16,7 @@ window.__ModuleLoader__.load({
     const styles = {
       stage: { position: 'relative', height: '100%', minHeight: 0, font: 'inherit', color: 'inherit', overflow: 'hidden' },
       canvasFill: {
-        position: 'absolute', inset: 0, overflow: 'hidden',
+        position: 'absolute', inset: 0, overflow: 'hidden', zIndex: 1,
         display: 'flex', alignItems: 'safe center', justifyContent: 'safe center',
         // Bias the initial view a little above the geometric centre: a graph
         // that starts dead-centre reads as bottom-heavy once rows are added.
@@ -30,7 +30,7 @@ window.__ModuleLoader__.load({
         position: 'absolute', top: 12, left: 12, width: 240, padding: '10px 12px',
         borderRadius: 10, background: 'var(--dsw-alias-bg-layer-2, #ffffff)',
         border: '1px solid var(--dsw-alias-border-l2, rgba(127,127,127,.28))',
-        boxShadow: '0 4px 16px rgba(0,0,0,.10)', display: 'flex', flexDirection: 'column',
+        boxShadow: '0 4px 16px rgba(0,0,0,.10)', display: 'flex', flexDirection: 'column', zIndex: 2,
       },
       cardHead: {
         display: 'flex', alignItems: 'center', gap: 6, marginBottom: 8,
@@ -43,7 +43,7 @@ window.__ModuleLoader__.load({
         display: 'flex', flexDirection: 'column', overflow: 'hidden',
         borderRadius: 10, background: 'var(--dsw-alias-bg-layer-2, #ffffff)',
         border: '1px solid var(--dsw-alias-border-l2, rgba(127,127,127,.28))',
-        boxShadow: '0 4px 16px rgba(0,0,0,.10)',
+        boxShadow: '0 4px 16px rgba(0,0,0,.10)', zIndex: 2,
       },
       panelHead: { padding: '10px 10px 6px', display: 'flex', gap: 6 },
       skillScroll: {
@@ -89,7 +89,7 @@ window.__ModuleLoader__.load({
         padding: '10px 22px', borderRadius: 10, border: '2px dashed ' + COLORS.red,
         color: COLORS.red, fontSize: 12, fontWeight: 600, pointerEvents: 'none',
         background: 'var(--dsw-alias-bg-layer-2, #ffffff)',
-        boxShadow: '0 4px 16px rgba(0,0,0,.12)',
+        boxShadow: '0 4px 16px rgba(0,0,0,.12)', zIndex: 5,
       },
     }
 
@@ -247,7 +247,9 @@ window.__ModuleLoader__.load({
         height: geom.height,
         role: 'img',
         'aria-label': `${role.name} 的依赖图`,
-        style: { display: 'block', margin: '0 auto', touchAction: 'none' },
+        // Without overflow: visible the root SVG clips to its viewBox, so a node
+        // carried past the canvas edge simply disappears.
+        style: { display: 'block', margin: '0 auto', touchAction: 'none', overflow: 'visible' },
         onPointerMove: moveLink,
         onPointerUp: endLink,
         onPointerCancel: () => setDrag(undefined),
@@ -641,6 +643,8 @@ window.__ModuleLoader__.load({
           ref: canvasRef,
           style: {
             ...(panelOpen ? { ...styles.canvasFill, paddingRight: 356 } : styles.canvasFill),
+            // While a node is being carried it must stay above the floating panels.
+            ...(removalActive ? { zIndex: 4 } : {}),
             cursor: panning ? 'grabbing' : 'default',
           },
           onPointerDown: startPan,
