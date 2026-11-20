@@ -123,7 +123,7 @@ window.__ModuleLoader__.load({
       return { width, height, positions, roleLevel }
     }
 
-    function Graph({ role, plan, selected, onSelect, onCreateEdge, onRemoveEdge, onDropOnNode }) {
+    function Graph({ role, plan, selected, onSelect, onCreateEdge, onRemoveEdge, onRemoveMember, onDropOnNode }) {
       const geom = useMemo(() => layout(role, plan), [role, plan])
       const svgRef = useRef(undefined)
       const [drag, setDrag] = useState(undefined)
@@ -162,7 +162,15 @@ window.__ModuleLoader__.load({
         event.stopPropagation()
         svgRef.current?.setPointerCapture?.(event.pointerId)
         const point = pointOf(event)
-        setDrag({ from: name, ox: point.x, oy: point.y, x: point.x, y: point.y, moved: false })
+        const position = geom.positions.get(name)
+        // The middle of a node box drags it away (remove); its side bands start a
+        // connection. Splitting by position is the only way to keep both gestures
+        // on one target without a modifier key.
+        const localX = position === undefined ? NODE_W / 2 : point.x - (position.x - NODE_W / 2)
+        const mode = name !== '__role__' && localX > NODE_W * 0.28 && localX < NODE_W * 0.72
+          ? 'remove'
+          : 'link'
+        setDrag({ from: name, mode, ox: point.x, oy: point.y, x: point.x, y: point.y, moved: false })
       }
       const moveLink = event => {
         const point = pointOf(event)
@@ -187,7 +195,13 @@ window.__ModuleLoader__.load({
         const point = pointOf(event)
         const target = nodeAt(point.x, point.y)
         if (drag.moved) {
-          if (target !== undefined && target !== drag.from) onCreateEdge(drag.from, target)
+          if (drag.mode === 'remove') {
+            // Only a deliberate pull counts: a short wobble inside the node must
+            // not delete a member.
+            if (Math.abs(point.x - drag.ox) + Math.abs(point.y - drag.oy) > 40) onRemoveMember(drag.from)
+          } else if (target !== undefined && target !== drag.from) {
+            onCreateEdge(drag.from, target)
+          }
         } else {
           onSelect(drag.from === '__role__' ? undefined : drag.from)
         }
@@ -268,7 +282,8 @@ window.__ModuleLoader__.load({
       drag !== undefined && drag.moved && sourcePos !== undefined
         ? h('line', {
             x1: sourcePos.x, y1: sourcePos.y, x2: drag.x, y2: drag.y,
-            stroke: 'currentColor', strokeOpacity: 0.55, strokeDasharray: '5 4', strokeWidth: 1.4,
+            stroke: drag.mode === 'remove' ? COLORS.red : 'currentColor',
+            strokeOpacity: 0.7, strokeDasharray: '5 4', strokeWidth: 1.4,
           })
         : null,
 
@@ -278,6 +293,7 @@ window.__ModuleLoader__.load({
         const active = selected === node.name
         const stateColor = node.kind === 'role' ? COLORS.role : colorOf(node.name)
         const isDropTarget = dropTarget === node.name
+        const removing = drag !== undefined && drag.from === node.name && drag.mode === 'remove' && drag.moved
         return h('g', {
           key: node.name,
           transform: `translate(${position.x - NODE_W / 2}, ${position.y - NODE_H})`,
@@ -299,9 +315,9 @@ window.__ModuleLoader__.load({
         h('rect', {
           width: NODE_W, height: NODE_H, rx: 6,
           fill: 'var(--dsw-alias-bg-layer-1, #ffffff)',
-          stroke: isDropTarget || active ? COLORS.role : 'currentColor',
-          strokeOpacity: isDropTarget || active ? 1 : 0.25,
-          strokeWidth: isDropTarget || active ? 2 : 1,
+          stroke: removing ? COLORS.red : isDropTarget || active ? COLORS.role : 'currentColor',
+          strokeOpacity: removing || isDropTarget || active ? 1 : 0.25,
+          strokeWidth: removing || isDropTarget || active ? 2 : 1,
           strokeDasharray: isDropTarget ? '5 3' : undefined,
         }),
         h('circle', { cx: 14, cy: NODE_H / 2, r: 4, fill: stateColor }),
@@ -559,6 +575,7 @@ window.__ModuleLoader__.load({
                   },
                   onDropOnNode: dropOnNode,
                   onRemoveEdge: edge => void send('edges', { action: 'unlink', from: edge.from, to: edge.to }),
+                  onRemoveMember: name => void send('members', { action: 'remove_members', remove: [name] }),
                 })
               : h('div', { key: 'empty', style: { ...styles.empty, padding: 24 } },
                 detail.status === 'error' ? detail.error
