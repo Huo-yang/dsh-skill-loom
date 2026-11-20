@@ -3,7 +3,7 @@ window.__ModuleLoader__.load({
   factory(require) {
     const React = require('react')
     const h = React.createElement
-    const { useState, useEffect, useCallback, useMemo } = React
+    const { useState, useEffect, useCallback, useMemo, useRef } = React
 
     const API = '/skill-loom'
     const NODE_W = 150
@@ -24,6 +24,11 @@ window.__ModuleLoader__.load({
         borderRadius: 10, background: 'var(--dsw-alias-bg-layer-2, #ffffff)',
         border: '1px solid var(--dsw-alias-border-l2, rgba(127,127,127,.28))',
         boxShadow: '0 4px 16px rgba(0,0,0,.10)', display: 'flex', flexDirection: 'column',
+      },
+      cardHead: {
+        display: 'flex', alignItems: 'center', gap: 6, marginBottom: 8,
+        fontSize: 12, fontWeight: 600, opacity: 0.7,
+        cursor: 'grab', userSelect: 'none', touchAction: 'none',
       },
       cardTitle: { fontSize: 12, fontWeight: 600, opacity: 0.7, marginBottom: 8 },
       panel: {
@@ -200,6 +205,39 @@ window.__ModuleLoader__.load({
       const [filter, setFilter] = useState('')
       const [linkTarget, setLinkTarget] = useState('')
       const [panelOpen, setPanelOpen] = useState(true)
+      const [cardPos, setCardPos] = useState(() => {
+        try {
+          const saved = JSON.parse(globalThis.localStorage?.getItem('skill-loom:card') ?? 'null')
+          if (saved !== null && typeof saved.x === 'number' && typeof saved.y === 'number') return saved
+        } catch {
+          // A blocked or corrupt preference simply keeps the default position.
+        }
+        return { x: 12, y: 12 }
+      })
+      const dragRef = useRef(undefined)
+      const [dragging, setDragging] = useState(false)
+
+      const startDrag = event => {
+        dragRef.current = { dx: event.clientX - cardPos.x, dy: event.clientY - cardPos.y }
+        setDragging(true)
+        event.currentTarget.setPointerCapture?.(event.pointerId)
+      }
+      const moveDrag = event => {
+        const drag = dragRef.current
+        if (drag === undefined) return
+        setCardPos({ x: Math.max(0, event.clientX - drag.dx), y: Math.max(0, event.clientY - drag.dy) })
+      }
+      const endDrag = event => {
+        if (dragRef.current === undefined) return
+        dragRef.current = undefined
+        setDragging(false)
+        event.currentTarget.releasePointerCapture?.(event.pointerId)
+        try {
+          globalThis.localStorage?.setItem('skill-loom:card', JSON.stringify(cardPos))
+        } catch {
+          // Persisting the position is a convenience, never a requirement.
+        }
+      }
 
       const loadList = useCallback(async () => {
         try {
@@ -282,8 +320,15 @@ window.__ModuleLoader__.load({
                     ? '还没有角色。让 agent 用 role_graph 建一个，刷新即可看到。'
                     : '选择一个角色查看依赖图')),
 
-        h('div', { style: styles.roleCard },
-          h('div', { style: styles.cardTitle }, '技能编排'),
+        h('div', { style: { ...styles.roleCard, left: cardPos.x, top: cardPos.y } },
+          h('div', {
+            style: { ...styles.cardHead, cursor: dragging ? 'grabbing' : 'grab' },
+            onPointerDown: startDrag,
+            onPointerMove: moveDrag,
+            onPointerUp: endDrag,
+            onPointerCancel: endDrag,
+            title: '拖动可移动面板',
+          }, [h('span', { key: 'g', style: { opacity: 0.5 } }, '⠿'), h('span', { key: 't' }, '技能编排')]),
           h('select', {
             value: selectedRole ?? '',
             onChange: event => { setSelectedRole(event.target.value); setSelectedSkill(undefined) },
