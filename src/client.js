@@ -872,7 +872,7 @@ window.__ModuleLoader__.load({
           onPointerCancel: endPan,
           onSelectStart: event => event.preventDefault(),
           onDragStart: event => event.preventDefault(),
-        },
+        }, [
           h('div', {
             style: {
               transform: `translate(${pan.x}px, ${pan.y}px)`,
@@ -913,7 +913,12 @@ window.__ModuleLoader__.load({
                     : list.status === 'ready' && list.roles.length === 0
                       ? '还没有角色。让 agent 用 role_graph 建一个，刷新即可看到。'
                       : '选择一个角色查看依赖图'),
-          ])),
+          ]),
+          // Anchored to the drawing area, not the whole stage: in the narrow layout
+          // the stage also holds the skill panel, and a stage-wide zone landed in
+          // the middle of the sidebar instead of at the bottom of the graph.
+          removalActive ? h('div', { ref: zoneRef, style: styles.trashZone }, '拖到此处移除') : null,
+        ]),
 
         h('style', { key: 'loom-css' }, MENU_CSS),
         error !== undefined
@@ -941,7 +946,6 @@ window.__ModuleLoader__.load({
             }, '↷ 重做'),
           ])
           : null,
-        removalActive ? h('div', { ref: zoneRef, style: styles.trashZone }, '拖到此处移除') : null,
         h('div', { style: styles.cornerBar }, [
             h('div', { key: 'roles', ref: roleMenuRef, style: { position: 'relative' } }, [
               h('button', {
