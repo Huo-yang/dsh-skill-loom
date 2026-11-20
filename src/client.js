@@ -737,8 +737,10 @@ window.__ModuleLoader__.load({
 
       const folderOf = path => path.replace(/[\\/][^\\/]+$/, '')
 
+      // Returns the catalog so callers can act on it without waiting for a render.
       const loadApps = async () => {
-        if (apps !== undefined || appsLoading) return
+        if (apps !== undefined) return apps
+        if (appsLoading) return []
         setAppsLoading(true)
         try {
           const response = await fetch('/open-in-app/apps', { headers: { accept: 'application/json' } })
@@ -746,9 +748,11 @@ window.__ModuleLoader__.load({
           if (!response.ok) throw new Error(body.message ?? body.code ?? 'HTTP ' + response.status)
           const list = Array.isArray(body) ? body : (Array.isArray(body.apps) ? body.apps : [])
           setApps(list)
+          return list
         } catch (cause) {
           setApps([])
           setError('读取已安装应用失败：' + String(cause?.message ?? cause))
+          return []
         } finally {
           setAppsLoading(false)
         }
@@ -1138,15 +1142,17 @@ window.__ModuleLoader__.load({
                   pending, error, send,
                   onDeleteRole: deleteRole,
                   onOpenFailed: message => setError(message),
+                  apps, appsLoading, loadApps, launchInApp, folderOf,
                 }),
               ]),
             ]),
           ])
           : null)
     }
-    function SkillDetail({ role, plan, health, skills, skillName, pending, error, send, onDeleteRole, onOpenFailed }) {
+    function SkillDetail({ role, plan, health, skills, skillName, pending, error, send, onDeleteRole, onOpenFailed, apps, appsLoading, loadApps, launchInApp, folderOf }) {
       const [personaDraft, setPersonaDraft] = useState(role.persona?.prefix ?? '')
       const [confirmDelete, setConfirmDelete] = useState(false)
+      const [pickerOpen, setPickerOpen] = useState(false)
 
       useEffect(() => {
         setPersonaDraft(role.persona?.prefix ?? '')
@@ -1231,7 +1237,56 @@ window.__ModuleLoader__.load({
                 onOpenFailed(String(cause?.message ?? cause))
               }
             },
-          }, '查看 SKILL.md')))
+          }, '查看 SKILL.md'),
+          h('button', {
+            key: 'openwith',
+            style: { ...styles.button(!appsLoading), marginLeft: 0 },
+            title: '用已安装的应用打开技能所在的文件夹',
+            disabled: appsLoading,
+            onClick: async () => {
+              const list = await loadApps()
+              if (list.length === 0) {
+                onOpenFailed('没有可用的应用')
+                return
+              }
+              let remembered
+              try {
+                remembered = globalThis.localStorage?.getItem('skill-loom:open-with') ?? undefined
+              } catch {
+                remembered = undefined
+              }
+              const pick = list.find(app => (app.id ?? app.app) === remembered) ?? list[0]
+              await launchInApp(pick.id ?? pick.app, folderOf(info.path))
+            },
+          }, '在应用中打开'),
+          (apps ?? []).length > 1
+            ? h('button', {
+                key: 'pick',
+                style: { ...styles.button(true), marginLeft: 0, padding: '0 6px' },
+                title: '选择应用',
+                onClick: async () => {
+                  await loadApps()
+                  setPickerOpen(value => !value)
+                },
+              }, '▾')
+            : null,
+        ))
+        if (pickerOpen) {
+          children.push(h('div', { key: 'applist', style: { ...styles.roleMenu, position: 'static', marginTop: 6, maxHeight: 160 } },
+            (apps ?? []).map(app => h('div', {
+              key: app.id ?? app.app,
+              style: { ...styles.roleRow, cursor: 'pointer' },
+              onClick: () => {
+                try {
+                  globalThis.localStorage?.setItem('skill-loom:open-with', app.id ?? app.app)
+                } catch {
+                  // A blocked storage just means no remembered choice.
+                }
+                setPickerOpen(false)
+                void launchInApp(app.id ?? app.app, folderOf(info.path))
+              },
+            }, app.title ?? app.label ?? app.id ?? app.app))))
+        }
       }
       children.push(h('div', { key: 'member', style: styles.section },
         h('div', { style: styles.empty },
