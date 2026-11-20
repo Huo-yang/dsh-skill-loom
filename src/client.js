@@ -640,18 +640,25 @@ window.__ModuleLoader__.load({
 
       // A right-sidebar pane is narrow, so the same page stacks vertically there
       // instead of floating two absolute panels.
-      const stageStyle = compact
-        ? { display: 'flex', flexDirection: 'column', height: '100%', minHeight: 0, position: 'relative', font: 'inherit', color: 'inherit', overflow: 'hidden' }
-        : styles.stage
+      const stageStyle = { display: 'flex', flexDirection: 'column', height: '100%', minHeight: 0, position: 'relative', font: 'inherit', color: 'inherit', overflow: 'hidden' }
       const canvasStyle = compact
         ? { ...styles.canvasFill, position: 'relative', inset: 'auto', flex: '1 1 52%', minHeight: 160, paddingRight: 0 }
-        : (panelOpen ? { ...styles.canvasFill, paddingRight: 356 } : styles.canvasFill)
+        : { ...styles.canvasFill, position: 'relative', inset: 'auto', flex: '1 1 auto', minHeight: 200, paddingRight: 0 }
       const cardStyle = compact
         ? { ...styles.roleCard, position: 'relative', top: 'auto', left: 'auto', width: 'auto', borderRadius: 0, border: 'none', borderBottom: '1px solid var(--dsw-alias-border-l2, rgba(127,127,127,.28))', boxShadow: 'none', zIndex: 1 }
         : { ...styles.roleCard, left: cardPos.x, top: cardPos.y }
       const panelStyle = compact
         ? { ...styles.panel, position: 'relative', top: 'auto', right: 'auto', bottom: 'auto', width: 'auto', flex: '1 1 48%', minHeight: 0, borderRadius: 0, border: 'none', boxShadow: 'none', zIndex: 1 }
-        : styles.panel
+        : {
+            position: 'relative', width: '100%', height: 300, flex: '0 0 auto',
+            display: 'flex', flexDirection: 'column', overflow: 'hidden',
+            background: 'var(--dsw-alias-bg-layer-2, #ffffff)',
+            borderTop: '1px solid var(--dsw-alias-border-l2, rgba(127,127,127,.28))',
+            zIndex: 1,
+          }
+      const listStyle = compact
+        ? styles.skillScroll
+        : { width: 240, flex: '0 0 240px', overflowY: 'auto', padding: '0 8px', borderRight: '1px solid var(--dsw-alias-border-l2, rgba(127,127,127,.2))' }
 
       return h('div', { style: stageStyle },
         h('div', {
@@ -759,16 +766,26 @@ window.__ModuleLoader__.load({
           ),
 
         panelOpen && roleReady
-          ? h('div', { style: panelStyle },
-            h('div', { style: styles.panelHead },
+          ? h('div', { style: panelStyle }, [
+            h('div', { key: 'head', style: styles.panelHead }, [
               h('input', {
+                key: 'filter',
                 value: filter,
                 onChange: event => setFilter(event.target.value),
                 placeholder: '过滤技能…',
                 style: { ...styles.select, flex: '1 1 auto' },
-              })),
-            h('div', { style: styles.skillScroll },
-              filtered.map(skill => {
+              }),
+            ]),
+            h('div', {
+              key: 'body',
+              style: {
+                display: 'flex',
+                flexDirection: compact ? 'column' : 'row',
+                flex: '1 1 auto',
+                minHeight: 0,
+              },
+            }, [
+              h('div', { key: 'list', style: listStyle }, filtered.map(skill => {
                 const member = (plan.members ?? []).includes(skill.name)
                 const stateColor = (plan.red ?? []).includes(skill.name) ? COLORS.red
                   : (plan.gray ?? []).some(row => row.name === skill.name) ? COLORS.gray
@@ -790,12 +807,15 @@ window.__ModuleLoader__.load({
                   h('div', { key: 'm', style: styles.meta }, member ? '已纳入' : (skill.source ?? '')),
                 ])
               })),
-            h('div', { style: styles.panelBody },
-              h(SkillDetail, {
-                role, plan, skills: list.skills, skillName: selectedSkill,
-                pending, error, linkTarget, setLinkTarget, send,
-                onDeleteRole: deleteRole,
-              })))
+              h('div', { key: 'detail', style: styles.panelBody }, [
+                h(SkillDetail, {
+                  role, plan, skills: list.skills, skillName: selectedSkill,
+                  pending, error, linkTarget, setLinkTarget, send,
+                  onDeleteRole: deleteRole,
+                }),
+              ]),
+            ]),
+          ])
           : null)
     }
     function SkillDetail({ role, plan, health, skills, skillName, pending, error, linkTarget, setLinkTarget, send, onDeleteRole }) {
