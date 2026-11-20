@@ -7,6 +7,7 @@ import {
   explainMissing,
   detectAnchorDrift,
   findCycles,
+  findRedundantEdges,
   isRoleNameTaken,
   newRoleId,
   planRole,
@@ -466,4 +467,30 @@ test('planRole treats an orphan edge source as a member to add', () => {
   const plan = planRole(graph, repo('a', 'b'))
   assert.deepEqual(plan.toAdd, ['a'])
   assert.deepEqual(plan.members.sort(), ['a', 'b'])
+})
+test('an edge implied by a longer path is reported as redundant', () => {
+  const graph = role({
+    members: ['a'],
+    edges: [
+      { from: 'a', to: 'b' },
+      { from: 'b', to: 'c' },
+      { from: 'a', to: 'c' },
+    ],
+  })
+  assert.deepEqual(findRedundantEdges(graph).map(edge => `${edge.from}->${edge.to}`), ['a->c'])
+})
+
+test('a plain chain has no redundant edges', () => {
+  const graph = role({ members: ['a'], edges: [{ from: 'a', to: 'b' }, { from: 'b', to: 'c' }] })
+  assert.deepEqual(findRedundantEdges(graph), [])
+})
+
+test('redundancy is reported as info, never as an error', () => {
+  const graph = role({
+    members: ['a', 'b', 'c'],
+    edges: [{ from: 'a', to: 'b' }, { from: 'b', to: 'c' }, { from: 'a', to: 'c' }],
+  })
+  const issues = validateRole(graph, repo('a', 'b', 'c'))
+  assert.ok(issues.some(issue => issue.code === 'redundant-edge' && issue.severity === 'info'))
+  assert.ok(!issues.some(issue => issue.severity === 'error'))
 })

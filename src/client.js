@@ -875,6 +875,17 @@ window.__ModuleLoader__.load({
               },
             }, confirmDelete ? '确认删除角色' : '删除角色'),
           ]),
+          (plan.redundant ?? []).length === 0
+            ? null
+            : h('div', { key: 'red', style: { ...styles.section, display: 'flex', alignItems: 'center', gap: 8 } }, [
+                h('span', { key: 't', style: styles.muted }, `${plan.redundant.length} 条依赖可由其他路径推出`),
+                h('button', {
+                  key: 'b',
+                  style: { ...styles.button(!pending), marginLeft: 'auto' },
+                  disabled: pending,
+                  onClick: () => void send('edges', { action: 'prune_edges' }),
+                }, '精简'),
+              ]),
           h('div', { key: 'e', style: { ...styles.empty, marginTop: 14 } }, '点击上图节点或下方技能，编辑它的依赖关系。'),
         ]
         if (error !== undefined) summary.push(h('div', { key: 'err', style: styles.error }, error))
@@ -909,8 +920,12 @@ window.__ModuleLoader__.load({
         : h('div', { key: 'member', style: styles.section },
             h('div', { style: styles.empty }, '尚未纳入。拖到角色节点即纳入；拖到某个技能节点，则那个技能依赖它。')))
 
+      const redundantKeys = new Set((plan.redundant ?? []).map(edge => edge.from + '->' + edge.to))
       const outgoingRows = outgoing.map((edge, index) => h('div', { key: `o${index}`, style: styles.line }, [
         h('span', { key: 'to', style: styles.mono }, edge.to),
+        redundantKeys.has(edge.from + '->' + edge.to)
+          ? h('span', { key: 'redundant', style: { ...styles.muted, color: COLORS.role }, title: '经由其他路径已经可达，可删除' }, '冗余')
+          : null,
         edge.why ? h('span', { key: 'why', style: styles.muted }, edge.why) : null,
         h('button', {
           key: 'del',

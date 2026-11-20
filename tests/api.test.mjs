@@ -309,3 +309,14 @@ test('linking a non-member onto a member pulls the source into members', async (
   const linked = await handler.handle({ action: 'link', role: id, from: 'a', to: 'b' }, { source: 'human' })
   assert.deepEqual([...linked.result.role.members].sort(), ['a', 'b'])
 })
+test('prune_edges removes only the implied edge', async () => {
+  const handler = api()
+  const created = await handler.handle({ action: 'create', name: 'r', add: ['a', 'b', 'c'] })
+  const id = created.result.role.id
+  await handler.handle({ action: 'link', role: id, from: 'a', to: 'b', why: 'x' })
+  await handler.handle({ action: 'link', role: id, from: 'b', to: 'c', why: 'y' })
+  await handler.handle({ action: 'link', role: id, from: 'a', to: 'c', why: 'z' })
+
+  const pruned = await handler.handle({ action: 'prune_edges', role: id }, { source: 'human' })
+  assert.deepEqual(pruned.result.role.edges.map(edge => `${edge.from}->${edge.to}`).sort(), ['a->b', 'b->c'])
+})

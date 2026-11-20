@@ -11,6 +11,7 @@
 import {
   captureAnchors,
   explainMissing,
+  findRedundantEdges,
   isRoleNameTaken,
   newRoleId,
   planRole,
@@ -40,7 +41,7 @@ const ACTIONS = [
   'help', 'list', 'show', 'plan',
   'create', 'set_name', 'set_persona',
   'add_members', 'remove_members',
-  'link', 'unlink', 'duplicate', 'bind', 'unbind',
+  'link', 'unlink', 'prune_edges', 'duplicate', 'bind', 'unbind',
 ]
 
 const HELP = {
@@ -259,6 +260,11 @@ export function createRoleGraphApi(deps) {
         const edges = (next.edges ?? []).filter(edge => !(edge.from === input.from && edge.to === input.to))
         edges.push({ from: input.from, to: input.to, ...(why === '' ? {} : { why }) })
         next.edges = edges
+        break
+      }
+      case 'prune_edges': {
+        const redundant = new Set(findRedundantEdges(next).map(edge => edge.from + '\u0000' + edge.to))
+        next.edges = (next.edges ?? []).filter(edge => !redundant.has(edge.from + '\u0000' + edge.to))
         break
       }
       case 'unlink': {

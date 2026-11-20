@@ -437,6 +437,10 @@ export function validateRole(role, repository, options = {}) {
     issues.push({ code: 'conflict', severity: 'error', message: `"${a}" and "${b}" conflict but are both reachable` })
   }
 
+  for (const edge of findRedundantEdges(role)) {
+    issues.push({ code: 'redundant-edge', severity: 'info', message: '"' + edge.from + '" already reaches "' + edge.to + '" through another path; this edge is optional' })
+  }
+
   for (const item of detectAnchorDrift(role, index)) {
     const detail = item.kind === 'path-changed'
       ? `moved from ${item.from} to ${item.to}`
@@ -484,6 +488,7 @@ export function planRole(role, repository, options = {}) {
     toAdd: [...closure].filter(name => !declared.has(name)),
     ...health,
     cycles: findCycles(role),
+    redundant: findRedundantEdges(role),
     anchors: captureAnchors(role, index),
     drift: detectAnchorDrift(role, index),
     missing: explainMissing(role, index, options.exists),
@@ -510,4 +515,31 @@ export function resolvedMembers(role) {
     if (typeof edge?.to === 'string') seed.add(edge.to)
   }
   return requiresClosure(role, seed)
+}
+/**
+ * Edges implied by a longer path.
+ *
+ * `requires` is transitive at resolution time, so a direct edge whose target is
+ * already reachable through another chain changes nothing — it only adds a line
+ * to the canvas. Such an edge is reported, never removed automatically.
+ * @param {object} role - role graph.
+ * @returns {Array<{ from: string, to: string, why?: string }>} redundant edges.
+ */
+export function findRedundantEdges(role) {
+  const edges = role?.edges ?? []
+  const redundant = []
+  const seen = new Set()
+  for (let index = 0; index < edges.length; index += 1) {
+    const edge = edges[index]
+    if (typeof edge?.from !== 'string' || typeof edge?.to !== 'string') continue
+    if (edge.from === edge.to) continue
+    const others = edges.filter((_, position) => position !== index)
+    const reachable = requiresClosure({ members: [edge.from], edges: others })
+    if (!reachable.has(edge.to)) continue
+    const key = edge.from + '\u0000' + edge.to
+    if (seen.has(key)) continue
+    seen.add(key)
+    redundant.push(edge)
+  }
+  return redundant
 }
