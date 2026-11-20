@@ -732,7 +732,8 @@ window.__ModuleLoader__.load({
               `revision ${role.revision} · 闭包 ${plan.closure.length} · 约 ${plan.catalogChars} 字符`)
             : null,
           h('button', {
-            style: { ...styles.button(!panelOpen), marginLeft: 0, marginTop: 8 },
+            style: { ...styles.button(true), marginLeft: 0, marginTop: 8 },
+            title: panelOpen ? '隐藏技能面板，让图占满' : '重新显示技能面板',
             onClick: () => setPanelOpen(open => !open),
           }, panelOpen ? '收起面板' : '展开面板'),
           h('div', { style: { ...styles.sectionTitle, marginTop: 10 } }, `会话 · ${sessions.length}`),
