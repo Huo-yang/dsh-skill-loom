@@ -110,3 +110,119 @@ test('the list reports red and gray without dropping the role', async () => {
   assert.deepEqual(body.roles[0].red, ['a'])
   assert.deepEqual(body.roles[0].gray, ['b'])
 })
+
+// --- writes ---------------------------------------------------------------
+
+const post = (path, body, headers = {}) => new Request(`http://127.0.0.1:3080${path}`, {
+  method: 'POST',
+  headers: { 'content-type': 'application/json', ...headers },
+  body: JSON.stringify(body),
+})
+
+test('adding a member reaches the action layer with the caller revision', async () => {
+  const calls = []
+  const handler = createResource({
+    store: storeOf(role()),
+    catalog: catalogOf({ a: { name: 'a', description: 'A' }, b: { name: 'b', description: 'B' } }),
+    exists: () => true,
+    mutate: async input => {
+      calls.push(input)
+      return { ok: true }
+    },
+  })
+  const response = await handler(post(`/skill-loom/roles/${UUID_A}/members`, {
+    action: 'add_members', add: ['b'], expectedRevision: 3,
+  }))
+  assert.equal(response.status, 200)
+  assert.deepEqual(calls, [{ action: 'add_members', role: UUID_A, add: ['b'], remove: undefined, expectedRevision: 3 }])
+})
+
+test('a cross-origin write is refused', async () => {
+  const handler = createResource({
+    store: storeOf(role()),
+    catalog: catalogOf({}),
+    mutate: async () => ({ ok: true }),
+  })
+  const response = await handler(post(`/skill-loom/roles/${UUID_A}/members`, { action: 'add_members', add: ['a'] }, { origin: 'https://evil.example' }))
+  assert.equal(response.status, 403)
+})
+
+test('a sandboxed (null) origin is refused too', async () => {
+  const handler = createResource({ store: storeOf(role()), catalog: catalogOf({}), mutate: async () => ({}) })
+  const response = await handler(post(`/skill-loom/roles/${UUID_A}/members`, { action: 'add_members', add: ['a'] }, { origin: 'null' }))
+  assert.equal(response.status, 403)
+})
+
+test('a local origin is accepted', async () => {
+  const handler = createResource({ store: storeOf(role()), catalog: catalogOf({}), mutate: async () => ({ ok: true }) })
+  const response = await handler(post(`/skill-loom/roles/${UUID_A}/members`, { action: 'add_members', add: ['a'] }, { origin: 'http://127.0.0.1:3080' }))
+  assert.equal(response.status, 200)
+})
+
+test('only the two member actions are reachable over HTTP', async () => {
+  const handler = createResource({ store: storeOf(role()), catalog: catalogOf({}), mutate: async () => ({ ok: true }) })
+  for (const action of ['bind', 'create', 'link', 'duplicate']) {
+    const response = await handler(post(`/skill-loom/roles/${UUID_A}/members`, { action }))
+    assert.equal(response.status, 400, action)
+  }
+})
+
+test('malformed json is a 400, not a crash', async () => {
+  const handler = createResource({ store: storeOf(role()), catalog: catalogOf({}), mutate: async () => ({}) })
+  const request = new Request(`http://127.0.0.1:3080/skill-loom/roles/${UUID_A}/members`, {
+    method: 'POST', headers: { 'content-type': 'application/json' }, body: '{ nope',
+  })
+  const response = await handler(request)
+  assert.equal(response.status, 400)
+  assert.equal((await response.json()).error, 'invalid-json')
+})
+
+test('an oversized body is refused before parsing', async () => {
+  const handler = createResource({ store: storeOf(role()), catalog: catalogOf({}), mutate: async () => ({}) })
+  const request = post(`/skill-loom/roles/${UUID_A}/members`, { action: 'add_members', add: ['x'.repeat(70000)] })
+  const response = await handler(request)
+  assert.equal(response.status, 413)
+})
+
+test('a revision conflict returns 409 with the current role', async () => {
+  const conflict = new Error('stale')
+  conflict.name = 'RoleConflictError'
+  const handler = createResource({
+    store: storeOf(role({ revision: 7 })),
+    catalog: catalogOf({}),
+    mutate: async () => {
+      throw conflict
+    },
+  })
+  const response = await handler(post(`/skill-loom/roles/${UUID_A}/members`, { action: 'add_members', add: ['a'], expectedRevision: 2 }))
+  assert.equal(response.status, 409)
+  const body = await response.json()
+  assert.equal(body.error, 'conflict')
+  assert.equal(body.current.revision, 7)
+})
+
+test('a validation rejection surfaces its code', async () => {
+  const rejected = new Error('the role was not saved because it is invalid')
+  rejected.name = 'RoleGraphError'
+  rejected.code = 'VALIDATION_FAILED'
+  const handler = createResource({
+    store: storeOf(role()),
+    catalog: catalogOf({}),
+    mutate: async () => {
+      throw rejected
+    },
+  })
+  const response = await handler(post(`/skill-loom/roles/${UUID_A}/members`, { action: 'add_members', add: ['a'] }))
+  assert.equal(response.status, 400)
+  assert.equal((await response.json()).code, 'VALIDATION_FAILED')
+})
+
+test('a host without a mutate hook is read-only', async () => {
+  const response = await resource()(post(`/skill-loom/roles/${UUID_A}/members`, { action: 'add_members', add: ['a'] }))
+  assert.equal(response.status, 405)
+})
+
+test('the collection route refuses POST', async () => {
+  const response = await resource()(post('/skill-loom/roles', { action: 'add_members' }))
+  assert.equal(response.status, 405)
+})

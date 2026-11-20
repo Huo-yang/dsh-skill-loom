@@ -292,6 +292,7 @@ export function apply(ctx, config = {}) {
     path: ROUTE_PREFIX,
     resource: createResource({
       store,
+      mutate: async input => api.handle(input, { expectedRevision: input.expectedRevision }),
       // Union of the global layer and every live agent scope: the editor must
       // not report a preset-mounted skill as missing just because no agent is
       // answering an HTTP request.

@@ -1,7 +1,10 @@
 /**
- * Read-only HTTP surface for the Skill Loom page.
+ * Read-only HTTP surface, plus the one write action the page needs.
  *
- * The route lives outside `/plugins/*` on purpose: that namespace belongs to the\n * client module bundles, and a prefix registered there can be shadowed by it.\n *\n * The page is a root-scope panel with no session binding, so it cannot ask for
+ * The route lives outside `/plugins/*` on purpose: that namespace belongs to the
+ * client module bundles, and a prefix registered there can be shadowed by it.
+ *
+ * The page is a root-scope panel with no session binding, so it cannot ask for
  * "this agent's" skill view. The orchestration view is therefore the union of
  * the global layer and every live agent's scope — a superset of what any single
  * session sees, which is what an editor wants: it must not report a
@@ -15,10 +18,38 @@ import { computeHealth, explainMissing, planRole } from './graph.js'
 /** Prefix every route lives under. */
 export const ROUTE_PREFIX = '/skill-loom'
 
+/** Largest accepted write body. */
+export const MAX_BODY_BYTES = 64 * 1024
+
+/** The only actions the browser may perform. */
+const WRITE_ACTIONS = new Set(['add_members', 'remove_members'])
+
 const json = (body, status = 200) => new Response(JSON.stringify(body), {
   status,
   headers: { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store' },
 })
+
+/**
+ * Reject a cross-origin write.
+ *
+ * Browsers attach `Origin` to a POST; a page on another origin must never be
+ * able to edit this profile. A request without `Origin` is a local tool (curl,
+ * tests) and is allowed; the literal string `null` is a sandboxed frame and is
+ * not.
+ * @param {Request} request - incoming request.
+ * @returns {boolean} whether the origin is acceptable.
+ */
+export function isLocalOrigin(request) {
+  const origin = request.headers.get('origin')
+  if (origin === null) return true
+  if (origin === 'null') return false
+  try {
+    const { hostname } = new URL(origin)
+    return hostname === '127.0.0.1' || hostname === 'localhost' || hostname === '[::1]'
+  } catch {
+    return false
+  }
+}
 
 /** Summarize one role for the list view. */
 function summarize(role, repo, exists) {
@@ -47,11 +78,59 @@ function summarize(role, repo, exists) {
  * @param {{ readAll: Function, read: Function }} deps.store - role store.
  * @param {() => Promise<Map<string, object>>} deps.catalog - orchestration view.
  * @param {(path: string) => boolean} [deps.exists] - anchor probe.
+ * @param {(input: object) => Promise<object>} [deps.mutate] - action dispatch (agent action layer).
  * @returns {(request: Request) => Promise<Response>} the resource.
  */
-export function createResource({ store, catalog, exists }) {
+export function createResource({ store, catalog, exists, mutate }) {
+  async function readBody(request) {
+    const declared = Number(request.headers.get('content-length') ?? '0')
+    if (Number.isFinite(declared) && declared > MAX_BODY_BYTES) return { tooLarge: true }
+    const text = await request.text()
+    if (text.length > MAX_BODY_BYTES) return { tooLarge: true }
+    try {
+      return { value: JSON.parse(text) }
+    } catch {
+      return { invalid: true }
+    }
+  }
+
+  async function write(request, id) {
+    if (typeof mutate !== 'function') return json({ error: 'read-only' }, 405)
+    if (!isLocalOrigin(request)) return json({ error: 'cross-origin' }, 403)
+
+    const body = await readBody(request)
+    if (body.tooLarge === true) return json({ error: 'body-too-large' }, 413)
+    if (body.invalid === true) return json({ error: 'invalid-json' }, 400)
+
+    const input = body.value
+    if (input === null || typeof input !== 'object') return json({ error: 'invalid-body' }, 400)
+    const action = input.action
+    if (!WRITE_ACTIONS.has(action)) return json({ error: 'action-not-allowed' }, 400)
+
+    try {
+      const result = await mutate({
+        action,
+        role: id,
+        add: Array.isArray(input.add) ? input.add : undefined,
+        remove: Array.isArray(input.remove) ? input.remove : undefined,
+        expectedRevision: typeof input.expectedRevision === 'number' ? input.expectedRevision : undefined,
+      })
+      return json({ ok: true, result })
+    } catch (error) {
+      if (error?.name === 'RoleConflictError') {
+        const current = await store.read(id)
+        return json({ error: 'conflict', current }, 409)
+      }
+      if (error?.name === 'RoleGraphError' || typeof error?.code === 'string') {
+        return json({ error: 'rejected', code: error.code, message: error.message }, 400)
+      }
+      return json({ error: 'internal', message: String(error?.message ?? error) }, 500)
+    }
+  }
+
   return async function resource(request) {
-    if (request.method !== 'GET' && request.method !== 'HEAD') {
+    const method = request.method
+    if (method !== 'GET' && method !== 'HEAD' && method !== 'POST') {
       return json({ error: 'method-not-allowed' }, 405)
     }
     const url = new URL(request.url)
@@ -63,6 +142,7 @@ export function createResource({ store, catalog, exists }) {
       const repo = await catalog()
 
       if (rest === '' || rest === 'roles') {
+        if (method === 'POST') return json({ error: 'method-not-allowed' }, 405)
         const roles = await store.readAll()
         return json({
           roles: roles.map(role => summarize(role, repo, exists)),
@@ -75,7 +155,15 @@ export function createResource({ store, catalog, exists }) {
         })
       }
 
+      const memberMatch = /^roles\/([^/]+)\/members$/.exec(rest)
+      if (memberMatch !== null) {
+        const id = decodeURIComponent(memberMatch[1])
+        if (method === 'POST') return await write(request, id)
+        return json({ error: 'method-not-allowed' }, 405)
+      }
+
       if (rest.startsWith('roles/')) {
+        if (method === 'POST') return json({ error: 'method-not-allowed' }, 405)
         const id = decodeURIComponent(rest.slice('roles/'.length))
         const role = await store.read(id)
         if (role === undefined) return json({ error: 'role-not-found', id }, 404)
