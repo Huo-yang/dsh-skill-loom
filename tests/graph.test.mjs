@@ -202,7 +202,7 @@ test('non-member edge endpoints never become gray', () => {
   assert.deepEqual(health.gray, [])
   assert.deepEqual(health.runtime, ['a'])
 })
-test('validateRole rejects cycles, conflicts and missing whys from an agent', () => {
+test('validateRole rejects cycles and conflicts', () => {
   const graph = role({
     members: ['a', 'b', 'c'],
     edges: [
@@ -214,7 +214,6 @@ test('validateRole rejects cycles, conflicts and missing whys from an agent', ()
   const codes = validateRole(graph, repo('a', 'b', 'c'), { source: 'agent' }).map(i => i.code)
   assert.ok(codes.includes('cycle'))
   assert.ok(codes.includes('conflict'))
-  assert.ok(codes.includes('missing-why'))
 })
 
 test('validateRole lets a human leave the why empty', () => {

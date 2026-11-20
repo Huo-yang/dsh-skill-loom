@@ -444,12 +444,9 @@ export function validateRole(role, repository, options = {}) {
     issues.push({ code: 'anchor-drift', severity: 'warning', message: `"${item.name}" ${detail}` })
   }
 
-  if (source === 'agent') {
-    for (const edge of role?.edges ?? []) {
-      if (typeof edge?.why === 'string' && edge.why.trim() !== '') continue
-      issues.push({ code: 'missing-why', severity: 'error', message: `agent-created edge ${String(edge?.from)} -> ${String(edge?.to)} must carry a "why"` })
-    }
-  }
+  // `why` is enforced where an agent *creates* an edge (the link action), not
+  // here: a role that already contains a human-drawn edge without a rationale
+  // must stay editable by an agent that is changing something else.
 
   const seen = new Set()
   return issues.filter(issue => {
