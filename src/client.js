@@ -169,16 +169,14 @@ window.__ModuleLoader__.load({
         event.stopPropagation()
         svgRef.current?.setPointerCapture?.(event.pointerId)
         const point = pointOf(event)
-        const position = geom.positions.get(name)
-        // The middle of a node box drags it away (remove); its side bands start a
-        // connection. Splitting by position is the only way to keep both gestures
-        // on one target without a modifier key.
-        const localX = position === undefined ? NODE_W / 2 : point.x - (position.x - NODE_W / 2)
-        const mode = name !== '__role__' && localX > NODE_W * 0.28 && localX < NODE_W * 0.72
-          ? 'remove'
-          : 'link'
-        setDrag({ from: name, mode, ox: point.x, oy: point.y, x: point.x, y: point.y, moved: false })
-        if (mode === 'remove') onRemovalDrag(true)
+        // The role node is not movable: dragging a skill moves its box, leaving a
+        // dashed placeholder behind, and dropping it on the trash removes it.
+        if (name === '__role__') {
+          setDrag({ from: name, mode: 'none', ox: point.x, oy: point.y, x: point.x, y: point.y, moved: false })
+          return
+        }
+        setDrag({ from: name, mode: 'move', ox: point.x, oy: point.y, x: point.x, y: point.y, moved: false })
+        onRemovalDrag(true)
       }
       const moveLink = event => {
         const point = pointOf(event)
@@ -203,16 +201,14 @@ window.__ModuleLoader__.load({
         const point = pointOf(event)
         const target = nodeAt(point.x, point.y)
         if (drag.moved) {
-          if (drag.mode === 'remove') {
+          if (drag.mode === 'move') {
             // Removal happens only inside the drop zone the page shows while this
-            // gesture is active.
+            // gesture is active; anywhere else simply returns the node.
             onRemovalDrag(false)
             onRemoveDrop(drag.from, event.clientX, event.clientY)
-          } else if (target !== undefined && target !== drag.from) {
-            onCreateEdge(drag.from, target)
           }
         } else {
-          if (drag.mode === 'remove') onRemovalDrag(false)
+          if (drag.mode === 'move') onRemovalDrag(false)
           onSelect(drag.from === '__role__' ? undefined : drag.from)
         }
         setDrag(undefined)
@@ -303,41 +299,57 @@ window.__ModuleLoader__.load({
         const active = selected === node.name
         const stateColor = node.kind === 'role' ? COLORS.role : colorOf(node.name)
         const isDropTarget = dropTarget === node.name
-        const removing = drag !== undefined && drag.from === node.name && drag.mode === 'remove' && drag.moved
-        const ghost = drag !== undefined && drag.from === node.name && drag.mode === 'remove'
-          ? { dx: drag.x - drag.ox, dy: drag.y - drag.oy }
-          : undefined
-        return h('g', {
-          key: node.name,
-          transform: `translate(${position.x - NODE_W / 2}, ${position.y - NODE_H})`,
-          onPointerDown: beginLink(node.name),
-          style: { cursor: 'grab' },
-          onDragOver: event => {
-            event.preventDefault()
-            event.dataTransfer.dropEffect = 'link'
-            setDropTarget(node.name)
-          },
-          onDragLeave: () => setDropTarget(current => (current === node.name ? undefined : current)),
-          onDrop: event => {
-            event.preventDefault()
-            setDropTarget(undefined)
-            const payload = event.dataTransfer.getData('text/plain')
-            if (payload !== '') onDropOnNode(payload, node.name)
-          },
-        },
-        h('rect', {
-          width: NODE_W, height: NODE_H, rx: 6,
-          fill: 'var(--dsw-alias-bg-layer-1, #ffffff)',
-          stroke: removing ? COLORS.red : isDropTarget || active ? COLORS.role : 'currentColor',
-          strokeOpacity: removing || isDropTarget || active ? 1 : 0.25,
-          strokeWidth: removing || isDropTarget || active ? 2 : 1,
-          strokeDasharray: isDropTarget ? '5 3' : undefined,
-        }),
-        h('circle', { cx: 14, cy: NODE_H / 2, r: 4, fill: stateColor }),
-        h('text', {
-          x: 26, y: NODE_H / 2 + 4, fontSize: 12, fill: 'currentColor',
-          style: { fontFamily: 'ui-monospace, SFMono-Regular, Consolas, monospace' },
-        }, node.label.length > 17 ? `${node.label.slice(0, 16)}…` : node.label))
+        const ghosting = drag !== undefined && drag.from === node.name && drag.mode === 'move'
+        const removing = ghosting && drag.moved
+        const ghost = ghosting ? { dx: drag.x - drag.ox, dy: drag.y - drag.oy } : { dx: 0, dy: 0 }
+        return h('g', { key: node.name }, [
+          // The placeholder stays at the node's original cell while its box is
+          // being carried, so the layout never looks like it lost a node.
+          ghosting
+            ? h('rect', {
+                key: 'placeholder',
+                x: position.x - NODE_W / 2, y: position.y - NODE_H,
+                width: NODE_W, height: NODE_H, rx: 6,
+                fill: 'none', stroke: 'currentColor', strokeOpacity: 0.3,
+                strokeDasharray: '5 4', strokeWidth: 1,
+              })
+            : null,
+          h('g', {
+            key: 'node',
+            transform: `translate(${position.x - NODE_W / 2 + ghost.dx}, ${position.y - NODE_H + ghost.dy})`,
+            opacity: removing ? 0.7 : 1,
+            onPointerDown: beginLink(node.name),
+            style: { cursor: 'grab' },
+            onDragOver: event => {
+              event.preventDefault()
+              event.dataTransfer.dropEffect = 'link'
+              setDropTarget(node.name)
+            },
+            onDragLeave: () => setDropTarget(current => (current === node.name ? undefined : current)),
+            onDrop: event => {
+              event.preventDefault()
+              setDropTarget(undefined)
+              const payload = event.dataTransfer.getData('text/plain')
+              if (payload !== '') onDropOnNode(payload, node.name)
+            },
+          }, [
+            h('rect', {
+              key: 'box',
+              width: NODE_W, height: NODE_H, rx: 6,
+              fill: 'var(--dsw-alias-bg-layer-1, #ffffff)',
+              stroke: removing ? COLORS.red : isDropTarget || active ? COLORS.role : 'currentColor',
+              strokeOpacity: removing || isDropTarget || active ? 1 : 0.25,
+              strokeWidth: removing || isDropTarget || active ? 2 : 1,
+              strokeDasharray: isDropTarget ? '5 3' : undefined,
+            }),
+            h('circle', { key: 'dot', cx: 14, cy: NODE_H / 2, r: 4, fill: stateColor }),
+            h('text', {
+              key: 'label',
+              x: 26, y: NODE_H / 2 + 4, fontSize: 12, fill: 'currentColor',
+              style: { fontFamily: 'ui-monospace, SFMono-Regular, Consolas, monospace' },
+            }, node.label.length > 17 ? `${node.label.slice(0, 16)}…` : node.label),
+          ]),
+        ])
       }))
     }
     function RolePage() {
