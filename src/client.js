@@ -145,6 +145,9 @@ window.__ModuleLoader__.load({
       // Hovering a node dims every edge that does not touch it, answering which
       // line belongs to this box without adding anything to the canvas.
       const [hovered, setHovered] = useState(undefined)
+      // The node under the pointer during a drag is the drop target; highlighting
+      // it replaces the old rubber-band line as the landing cue.
+      const [hoverTarget, setHoverTarget] = useState(undefined)
       // Dragging an edge by its midpoint detaches it; releasing anywhere removes it.
       const [edgeDrag, setEdgeDrag] = useState(undefined)
 
@@ -198,6 +201,7 @@ window.__ModuleLoader__.load({
         if (drag === undefined) return
         const moved = drag.moved || Math.abs(point.x - drag.ox) + Math.abs(point.y - drag.oy) > 6
         setDrag({ ...drag, x: point.x, y: point.y, moved })
+        if (drag.mode === 'link') setHoverTarget(moved ? nodeAt(point.x, point.y) : undefined)
       }
       const endLink = event => {
         if (edgeDrag !== undefined) {
@@ -207,6 +211,7 @@ window.__ModuleLoader__.load({
           return
         }
         if (drag === undefined) return
+        setHoverTarget(undefined)
         svgRef.current?.releasePointerCapture?.(event.pointerId)
         const point = pointOf(event)
         const target = nodeAt(point.x, point.y)
@@ -316,20 +321,13 @@ window.__ModuleLoader__.load({
               }))
       }),
 
-      drag !== undefined && drag.moved && drag.mode === 'link' && sourcePos !== undefined
-        ? h('line', {
-            x1: sourcePos.x, y1: sourcePos.y, x2: drag.x, y2: drag.y,
-            stroke: 'currentColor',
-            strokeOpacity: 0.7, strokeDasharray: '5 4', strokeWidth: 1.4,
-          })
-        : null,
 
       nodes.map(node => {
         const position = geom.positions.get(node.name)
         if (position === undefined) return null
         const active = selected === node.name
         const stateColor = node.kind === 'role' ? COLORS.role : colorOf(node.name)
-        const isDropTarget = dropTarget === node.name
+        const isDropTarget = dropTarget === node.name || (hoverTarget === node.name && drag !== undefined && drag.moved)
         const ghosting = drag !== undefined && drag.from === node.name && drag.mode === 'link' && drag.moved
         const ghost = ghosting ? { dx: drag.x - drag.ox, dy: drag.y - drag.oy } : { dx: 0, dy: 0 }
         return h('g', { key: node.name }, [
