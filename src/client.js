@@ -469,6 +469,11 @@ window.__ModuleLoader__.load({
       const [roleMenu, setRoleMenu] = useState(false)
       const [creatingRole, setCreatingRole] = useState(undefined)
       const [confirmRoleDel, setConfirmRoleDel] = useState(undefined)
+      // Per-row open-with menu: DSH owns the installed-application catalog, so the
+      // page only asks for it and posts the launch.
+      const [appMenuFor, setAppMenuFor] = useState(undefined)
+      const [apps, setApps] = useState(undefined)
+      const [appsLoading, setAppsLoading] = useState(false)
       const zoneRef = useRef(undefined)
       const cardKey = compact ? 'skill-loom:card-compact' : 'skill-loom:card'
       const [cardPos, setCardPos] = useState(() => {
@@ -727,6 +732,41 @@ window.__ModuleLoader__.load({
           setError(String(cause?.message ?? cause))
         } finally {
           setPending(false)
+        }
+      }
+
+      const folderOf = path => path.replace(/[\\/][^\\/]+$/, '')
+
+      const loadApps = async () => {
+        if (apps !== undefined || appsLoading) return
+        setAppsLoading(true)
+        try {
+          const response = await fetch('/open-in-app/apps', { headers: { accept: 'application/json' } })
+          const body = await response.json().catch(() => ({}))
+          if (!response.ok) throw new Error(body.message ?? body.code ?? 'HTTP ' + response.status)
+          const list = Array.isArray(body) ? body : (Array.isArray(body.apps) ? body.apps : [])
+          setApps(list)
+        } catch (cause) {
+          setApps([])
+          setError('读取已安装应用失败：' + String(cause?.message ?? cause))
+        } finally {
+          setAppsLoading(false)
+        }
+      }
+
+      const launchInApp = async (appId, dir) => {
+        try {
+          const response = await fetch('/open-in-app/open', {
+            method: 'POST',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({ app: appId, path: dir }),
+          })
+          const body = await response.json().catch(() => ({}))
+          if (!response.ok) throw new Error(body.message ?? body.code ?? 'HTTP ' + response.status)
+          setAppMenuFor(undefined)
+          setNotice('已用 ' + appId + ' 打开 ' + dir)
+        } catch (cause) {
+          setError('打开失败：' + String(cause?.message ?? cause))
         }
       }
 
@@ -1051,13 +1091,45 @@ window.__ModuleLoader__.load({
                     event.dataTransfer.effectAllowed = 'link'
                   },
                   title: '拖到角色节点即纳入；拖到技能节点即依赖该技能',
-                  style: { ...styles.item(selectedSkill === skill.name), cursor: 'grab' },
+                  style: { ...styles.item(selectedSkill === skill.name), cursor: 'grab', position: 'relative' },
                   onClick: () => setSelectedSkill(skill.name),
                 }, [
                   h('div', { key: 'n', style: styles.itemName },
                     h('span', { style: styles.dot(stateColor) }),
                     skill.name),
                   h('div', { key: 'm', style: styles.meta }, member ? '已纳入' : (skill.source ?? '')),
+                  typeof skill.path === 'string'
+                    ? h('button', {
+                        key: 'more',
+                        draggable: false,
+                        style: { ...styles.button(true), marginLeft: 'auto', height: 18, padding: '0 5px' },
+                        title: '在应用中打开',
+                        onPointerDown: event => event.stopPropagation(),
+                        onClick: event => {
+                          event.stopPropagation()
+                          const next = appMenuFor === skill.name ? undefined : skill.name
+                          setAppMenuFor(next)
+                          if (next !== undefined) void loadApps()
+                        },
+                      }, '…')
+                    : null,
+                  appMenuFor === skill.name
+                    ? h('div', {
+                        key: 'menu',
+                        style: { ...styles.roleMenu, top: '100%', left: 'auto', right: 0, width: 190, zIndex: 30 },
+                      }, appsLoading
+                        ? h('div', { key: 'l', style: styles.empty }, '读取中…')
+                        : (apps ?? []).length === 0
+                          ? h('div', { key: 'e', style: styles.empty }, '没有可用的应用')
+                          : (apps ?? []).map(app => h('div', {
+                              key: app.id ?? app.app,
+                              style: { ...styles.roleRow, cursor: 'pointer' },
+                              onClick: event => {
+                                event.stopPropagation()
+                                void launchInApp(app.id ?? app.app, folderOf(skill.path))
+                              },
+                            }, app.title ?? app.label ?? app.id ?? app.app)))
+                    : null,
                 ])
               })),
               h('div', { key: 'detail', style: styles.panelBody }, [
@@ -1143,7 +1215,7 @@ window.__ModuleLoader__.load({
       if (info?.path !== undefined) {
         children.push(h('div', { key: 'open', style: { marginTop: 10 } },
           h('button', {
-            key: 'b',
+            key: 'view',
             style: { ...styles.button(true), marginLeft: 0 },
             title: info.path,
             onClick: () => {
@@ -1159,12 +1231,8 @@ window.__ModuleLoader__.load({
                 onOpenFailed(String(cause?.message ?? cause))
               }
             },
-          }, '打开 SKILL.md')))
+          }, '查看 SKILL.md')))
       }
-      if (error !== undefined) children.push(h('div', { key: 'err', style: styles.error }, error))
-
-      // Read-only: this box reports, it never edits. Membership and edges are
-      // changed on the canvas (drag), which keeps one place responsible per fact.
       children.push(h('div', { key: 'member', style: styles.section },
         h('div', { style: styles.empty },
           member ? '已纳入该角色。' : '尚未纳入。从右侧列表拖入，或拖到角色节点即可纳入。')))
