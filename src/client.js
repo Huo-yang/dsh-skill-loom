@@ -1347,9 +1347,9 @@ window.__ModuleLoader__.load({
               bound === undefined ? h('span', { key: 'c' }, check) : null,
             ]),
             ...roles.map(role => {
-              const total = Array.isArray(role.runtime) ? role.runtime.length : 0
-              const missing = Array.isArray(role.red) ? role.red.length : 0
-              const detail = total + ' 个技能可用' + (missing > 0 ? ' · ' + missing + ' 个缺失' : '')
+              const detail = typeof role.persona === 'string' && role.persona.trim() !== ''
+                ? role.persona.trim()
+                : '未设置人设'
               return h('div', {
                 key: role.id,
                 className: 'loom-menu-item',
