@@ -118,10 +118,13 @@ window.__ModuleLoader__.load({
   font-size: 12px; line-height: 1.2; cursor: pointer; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .loom-menu-item:hover { background: var(--dsw-alias-bg-multi-select, rgba(127,127,127,.16)); }
 .loom-menu-empty { padding: 6px 10px; font-size: 12px; opacity: .6; }
-.loom-option { display: inline-flex; align-items: center; gap: 4px; height: 26px; padding: 0 8px; border-radius: 6px;
-  border: 1px solid var(--dsw-alias-border-l2, rgba(127,127,127,.28)); background: transparent; color: inherit;
-  font: inherit; font-size: 12px; cursor: pointer; }
+.loom-option { display: inline-flex; align-items: center; gap: 4px; min-height: 28px; padding: 0 8px;
+  border: none; background: none; border-radius: var(--dsw-radius-sm, 6px);
+  color: var(--dsw-alias-label-primary, inherit); font: inherit; font-size: 13px; font-weight: 500;
+  line-height: 20px; cursor: pointer; }
 .loom-option:hover { background: var(--dsw-alias-bg-multi-select, rgba(127,127,127,.12)); }
+.loom-option-label { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.loom-option-icon { color: var(--dsw-alias-label-caption, currentColor); flex: none; }
 `
     function SidebarIcon() {
       return h('svg', { viewBox: '0 0 16 16', width: 16, height: 16, 'aria-hidden': true, style: { display: 'block' } },
@@ -1260,11 +1263,33 @@ window.__ModuleLoader__.load({
         h('style', { key: 'css' }, MENU_CSS),
         h('button', {
           key: 'trigger',
+          type: 'button',
           className: 'loom-option',
           disabled: busy,
           title: failed ?? '这个会话以哪个角色的技能集运行',
           onClick: () => setOpen(value => !value),
-        }, '角色：' + (current?.name ?? '默认') + ' ▾'),
+        }, [
+          h('svg', {
+            key: 'icon',
+            viewBox: '0 0 16 16',
+            width: 16,
+            height: 16,
+            className: 'loom-option-icon',
+            'aria-hidden': true,
+          }, h('path', {
+            d: 'M8 2a3 3 0 1 1 0 6 3 3 0 0 1 0-6Zm-6 12c0-2.5 2.7-4 6-4s6 1.5 6 4v.5H2V14Z',
+            fill: 'currentColor',
+          })),
+          h('span', { key: 'label', className: 'loom-option-label' }, current?.name ?? '默认角色'),
+          h('svg', {
+            key: 'chevron',
+            viewBox: '0 0 16 16',
+            width: 12,
+            height: 12,
+            className: 'loom-option-icon',
+            'aria-hidden': true,
+          }, h('path', { d: 'M4 6l4 4 4-4', fill: 'none', stroke: 'currentColor', strokeWidth: 1.5, strokeLinecap: 'round' })),
+        ]),
         open
           ? h('div', { key: 'menu', className: 'loom-menu loom-menu--float', style: { left: 'auto', right: 0, width: 200 } }, [
             h('div', { key: 'none', className: 'loom-menu-item', onClick: () => void choose(undefined) }, '默认（全部技能）'),
