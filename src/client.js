@@ -1369,7 +1369,23 @@ window.__ModuleLoader__.load({
         // point of a second surface. The services can arrive after this module
         // applies, so wait for them instead of checking once and giving up: a
         // missed registration means no entry and no page at all.
+        // `ctx.inject` is the supported way to depend on a service that may mount
+        // after this plugin; `ctx.get` only sees what exists at this instant, which
+        // is why the tab type sometimes never registered at all. The polling arm
+        // stays as a fallback for a context without the scoped form.
         const whenAvailable = (name, run, attempt = 0) => {
+          if (typeof ctx.inject === 'function') {
+            ctx.inject([name], scope => {
+              const service = scope?.[name] ?? ctx.get?.(name)
+              if (service === undefined) return
+              try {
+                run(service)
+              } catch {
+                // A late service that refuses registration changes nothing.
+              }
+            })
+            return
+          }
           const service = ctx.get?.(name)
           if (service !== undefined) {
             try {
