@@ -282,3 +282,23 @@ test('resolve accepts a uuid or a display name and rejects the rest', async () =
   await assert.rejects(() => handler.resolve('nope'), error => error.code === 'ROLE_NOT_FOUND')
   await assert.rejects(() => handler.resolve(''), error => error.code === 'ROLE_REQUIRED')
 })
+test('a human writer may draw an edge without a why', async () => {
+  const handler = api()
+  const created = await handler.handle({ action: 'create', name: 'r', add: ['a', 'b'] })
+  const id = created.result.role.id
+  const linked = await handler.handle(
+    { action: 'link', role: id, from: 'a', to: 'b' },
+    { source: 'human' },
+  )
+  assert.equal(linked.result.role.edges.length, 1)
+  assert.equal(linked.result.role.edges[0].why, undefined)
+})
+
+test('an agent still has to justify an edge', async () => {
+  const handler = api()
+  const created = await handler.handle({ action: 'create', name: 'r', add: ['a', 'b'] })
+  await expectCode(
+    handler.handle({ action: 'link', role: created.result.role.id, from: 'a', to: 'b' }, { source: 'agent' }),
+    'MISSING_WHY',
+  )
+})

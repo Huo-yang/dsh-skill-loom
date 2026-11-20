@@ -21,8 +21,9 @@ export const ROUTE_PREFIX = '/skill-loom'
 /** Largest accepted write body. */
 export const MAX_BODY_BYTES = 64 * 1024
 
-/** The only actions the browser may perform. */
-const WRITE_ACTIONS = new Set(['add_members', 'remove_members'])
+/** The only actions the browser may perform, per route. */
+const MEMBER_ACTIONS = new Set(['add_members', 'remove_members'])
+const EDGE_ACTIONS = new Set(['link', 'unlink'])
 
 const json = (body, status = 200) => new Response(JSON.stringify(body), {
   status,
@@ -94,7 +95,7 @@ export function createResource({ store, catalog, exists, mutate }) {
     }
   }
 
-  async function write(request, id) {
+  async function write(request, id, allowed) {
     if (typeof mutate !== 'function') return json({ error: 'read-only' }, 405)
     if (!isLocalOrigin(request)) return json({ error: 'cross-origin' }, 403)
 
@@ -105,16 +106,27 @@ export function createResource({ store, catalog, exists, mutate }) {
     const input = body.value
     if (input === null || typeof input !== 'object') return json({ error: 'invalid-body' }, 400)
     const action = input.action
-    if (!WRITE_ACTIONS.has(action)) return json({ error: 'action-not-allowed' }, 400)
+    if (!allowed.has(action)) return json({ error: 'action-not-allowed' }, 400)
 
     try {
-      const result = await mutate({
-        action,
-        role: id,
-        add: Array.isArray(input.add) ? input.add : undefined,
-        remove: Array.isArray(input.remove) ? input.remove : undefined,
-        expectedRevision: typeof input.expectedRevision === 'number' ? input.expectedRevision : undefined,
-      })
+      const expectedRevision = typeof input.expectedRevision === 'number' ? input.expectedRevision : undefined
+      const payload = MEMBER_ACTIONS.has(action)
+        ? {
+            action,
+            role: id,
+            add: Array.isArray(input.add) ? input.add : undefined,
+            remove: Array.isArray(input.remove) ? input.remove : undefined,
+            expectedRevision,
+          }
+        : {
+            action,
+            role: id,
+            from: typeof input.from === 'string' ? input.from : undefined,
+            to: typeof input.to === 'string' ? input.to : undefined,
+            why: typeof input.why === 'string' ? input.why : undefined,
+            expectedRevision,
+          }
+      const result = await mutate(payload)
       return json({ ok: true, result })
     } catch (error) {
       if (error?.name === 'RoleConflictError') {
@@ -161,7 +173,14 @@ export function createResource({ store, catalog, exists, mutate }) {
       const memberMatch = /^roles\/([^/]+)\/members$/.exec(rest)
       if (memberMatch !== null) {
         const id = decodeURIComponent(memberMatch[1])
-        if (method === 'POST') return await write(request, id)
+        if (method === 'POST') return await write(request, id, MEMBER_ACTIONS)
+        return json({ error: 'method-not-allowed' }, 405)
+      }
+
+      const edgeMatch = /^roles\/([^/]+)\/edges$/.exec(rest)
+      if (edgeMatch !== null) {
+        const id = decodeURIComponent(edgeMatch[1])
+        if (method === 'POST') return await write(request, id, EDGE_ACTIONS)
         return json({ error: 'method-not-allowed' }, 405)
       }
 

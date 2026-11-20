@@ -307,7 +307,7 @@ export function apply(ctx, config = {}) {
     // A handler, not a resource: resource routes answer GET/HEAD only.
     handler: toNodeHandler(createResource({
       store,
-      mutate: async input => api.handle(input, { expectedRevision: input.expectedRevision }),
+      mutate: async input => api.handle(input, { expectedRevision: input.expectedRevision, source: 'human' }),
       // Union of the global layer and every live agent scope: the editor must
       // not report a preset-mounted skill as missing just because no agent is
       // answering an HTTP request.

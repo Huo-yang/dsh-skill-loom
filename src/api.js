@@ -114,7 +114,9 @@ export function createRoleGraphApi(deps) {
 
   /** Validate, auto-fill, anchor, then persist. */
   async function persist(role, repo, options = {}) {
-    const issues = validateRole(role, repo, { source: 'agent', exists })
+    // The caller states who is writing: an agent must justify every edge, a
+    // human editing through the page does not (D11).
+    const issues = validateRole(role, repo, { source: options.source ?? 'agent', exists })
     const errors = issues.filter(issue => issue.severity === 'error')
     if (errors.length > 0) {
       throw new RoleGraphError('VALIDATION_FAILED', 'the role was not saved because it is invalid', { issues: errors })
@@ -128,7 +130,7 @@ export function createRoleGraphApi(deps) {
       members: [...requiresClosure(role)],
       anchors: captureAnchors(role, repo),
     }
-    const saved = await store.save(filled, options)
+    const saved = await store.save(filled, { expectedRevision: options.expectedRevision })
     return {
       role: saved,
       plan: planRole(saved, repo, { exists }),
@@ -246,12 +248,15 @@ export function createRoleGraphApi(deps) {
           throw new RoleGraphError('INVALID_EDGE', 'link needs both "from" and "to"')
         }
         if (input.from === input.to) throw new RoleGraphError('INVALID_EDGE', 'a skill cannot require itself')
-        if (typeof input.why !== 'string' || input.why.trim() === '') {
+        // Only an agent must justify an edge (D11); a person drawing one in the
+        // page is not forced to write a sentence for every line.
+        const why = typeof input.why === 'string' ? input.why.trim() : ''
+        if (why === '' && (context.source ?? 'agent') === 'agent') {
           throw new RoleGraphError('MISSING_WHY', 'an agent-created edge must explain why it exists')
         }
-        if (input.why.length > 80) throw new RoleGraphError('WHY_TOO_LONG', 'why must be 80 characters or fewer')
+        if (why.length > 80) throw new RoleGraphError('WHY_TOO_LONG', 'why must be 80 characters or fewer')
         const edges = (next.edges ?? []).filter(edge => !(edge.from === input.from && edge.to === input.to))
-        edges.push({ from: input.from, to: input.to, why: input.why })
+        edges.push({ from: input.from, to: input.to, ...(why === '' ? {} : { why }) })
         next.edges = edges
         break
       }
@@ -282,7 +287,7 @@ export function createRoleGraphApi(deps) {
         throw new RoleGraphError('UNKNOWN_ACTION', `unknown action "${action}"`)
     }
 
-    const saved = await persist(next, repo, { expectedRevision: context.expectedRevision })
+    const saved = await persist(next, repo, { expectedRevision: context.expectedRevision, source: context.source })
     return { ok: true, action, result: saved }
   }
 

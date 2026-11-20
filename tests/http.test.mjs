@@ -301,3 +301,35 @@ test('the adapter refuses an oversized body before the resource runs', async () 
   }), res)
   assert.equal(res.statusCode, 413)
 })
+// --- edges ----------------------------------------------------------------
+
+test('an edge write reaches the action layer with from/to', async () => {
+  const calls = []
+  const handler = createResource({
+    store: storeOf(role({ members: ['a', 'b'] })),
+    catalog: catalogOf({}),
+    mutate: async input => {
+      calls.push(input)
+      return { ok: true }
+    },
+  })
+  const response = await handler(post(`/skill-loom/roles/${UUID_A}/edges`, {
+    action: 'link', from: 'a', to: 'b', expectedRevision: 4,
+  }))
+  assert.equal(response.status, 200)
+  assert.deepEqual(calls[0], {
+    action: 'link', role: UUID_A, from: 'a', to: 'b', why: undefined, expectedRevision: 4,
+  })
+})
+
+test('member actions are not accepted on the edge route', async () => {
+  const handler = createResource({ store: storeOf(role()), catalog: catalogOf({}), mutate: async () => ({}) })
+  const response = await handler(post(`/skill-loom/roles/${UUID_A}/edges`, { action: 'add_members', add: ['a'] }))
+  assert.equal(response.status, 400)
+})
+
+test('edge actions are not accepted on the member route', async () => {
+  const handler = createResource({ store: storeOf(role()), catalog: catalogOf({}), mutate: async () => ({}) })
+  const response = await handler(post(`/skill-loom/roles/${UUID_A}/members`, { action: 'link', from: 'a', to: 'b' }))
+  assert.equal(response.status, 400)
+})
