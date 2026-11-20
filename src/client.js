@@ -644,22 +644,14 @@ window.__ModuleLoader__.load({
       const stageStyle = { display: 'flex', flexDirection: 'column', height: '100%', minHeight: 0, position: 'relative', font: 'inherit', color: 'inherit', overflow: 'hidden' }
       const canvasStyle = compact
         ? { ...styles.canvasFill, position: 'relative', inset: 'auto', flex: '1 1 auto', minHeight: 160, paddingRight: 0 }
-        : { ...styles.canvasFill, position: 'relative', inset: 'auto', flex: '1 1 auto', minHeight: 200, paddingRight: 0 }
+        : { ...styles.canvasFill, position: 'relative', inset: 'auto', flex: '1 1 auto', minHeight: 200, paddingRight: 356 }
       const cardStyle = compact
         ? { ...styles.roleCard, left: cardPos.x, top: cardPos.y, zIndex: 2 }
         : { ...styles.roleCard, left: cardPos.x, top: cardPos.y }
       const panelStyle = compact
         ? { ...styles.panel, position: 'relative', top: 'auto', right: 'auto', bottom: 'auto', width: 'auto', flex: '1 1 48%', minHeight: 0, borderRadius: 0, border: 'none', boxShadow: 'none', zIndex: 1 }
-        : {
-            position: 'relative', width: '100%', height: 300, flex: '0 0 auto',
-            display: 'flex', flexDirection: 'column', overflow: 'hidden',
-            background: 'var(--dsw-alias-bg-layer-2, #ffffff)',
-            borderTop: '1px solid var(--dsw-alias-border-l2, rgba(127,127,127,.28))',
-            zIndex: 1,
-          }
-      const listStyle = compact
-        ? styles.skillScroll
-        : { width: 240, flex: '0 0 240px', overflowY: 'auto', padding: '0 8px', borderRight: '1px solid var(--dsw-alias-border-l2, rgba(127,127,127,.2))' }
+        : { ...styles.panel, zIndex: 2 }
+      const listStyle = styles.skillScroll
 
       return h('div', { style: stageStyle },
         h('div', {
@@ -791,7 +783,7 @@ window.__ModuleLoader__.load({
               key: 'body',
               style: {
                 display: 'flex',
-                flexDirection: compact ? 'column' : 'row',
+                flexDirection: 'column',
                 flex: '1 1 auto',
                 minHeight: 0,
               },
