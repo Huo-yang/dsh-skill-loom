@@ -84,6 +84,13 @@ window.__ModuleLoader__.load({
         borderLeft: `3px solid ${COLORS.red}`, background: 'var(--dsw-alias-bg-layer-2, rgba(127,127,127,.1))',
       },
       empty: { fontSize: 12, opacity: 0.6, padding: '8px 2px' },
+      trashZone: {
+        position: 'absolute', bottom: 18, left: '50%', transform: 'translateX(-50%)',
+        padding: '10px 22px', borderRadius: 10, border: '2px dashed ' + COLORS.red,
+        color: COLORS.red, fontSize: 12, fontWeight: 600, pointerEvents: 'none',
+        background: 'var(--dsw-alias-bg-layer-2, #ffffff)',
+        boxShadow: '0 4px 16px rgba(0,0,0,.12)',
+      },
     }
 
     function SidebarIcon() {
@@ -123,7 +130,7 @@ window.__ModuleLoader__.load({
       return { width, height, positions, roleLevel }
     }
 
-    function Graph({ role, plan, selected, onSelect, onCreateEdge, onRemoveEdge, onRemoveMember, onDropOnNode }) {
+    function Graph({ role, plan, selected, onSelect, onCreateEdge, onRemoveEdge, onRemovalDrag, onRemoveDrop, onDropOnNode }) {
       const geom = useMemo(() => layout(role, plan), [role, plan])
       const svgRef = useRef(undefined)
       const [drag, setDrag] = useState(undefined)
@@ -171,6 +178,7 @@ window.__ModuleLoader__.load({
           ? 'remove'
           : 'link'
         setDrag({ from: name, mode, ox: point.x, oy: point.y, x: point.x, y: point.y, moved: false })
+        if (mode === 'remove') onRemovalDrag(true)
       }
       const moveLink = event => {
         const point = pointOf(event)
@@ -196,13 +204,15 @@ window.__ModuleLoader__.load({
         const target = nodeAt(point.x, point.y)
         if (drag.moved) {
           if (drag.mode === 'remove') {
-            // Only a deliberate pull counts: a short wobble inside the node must
-            // not delete a member.
-            if (Math.abs(point.x - drag.ox) + Math.abs(point.y - drag.oy) > 40) onRemoveMember(drag.from)
+            // Removal happens only inside the drop zone the page shows while this
+            // gesture is active.
+            onRemovalDrag(false)
+            onRemoveDrop(drag.from, event.clientX, event.clientY)
           } else if (target !== undefined && target !== drag.from) {
             onCreateEdge(drag.from, target)
           }
         } else {
+          if (drag.mode === 'remove') onRemovalDrag(false)
           onSelect(drag.from === '__role__' ? undefined : drag.from)
         }
         setDrag(undefined)
@@ -279,7 +289,7 @@ window.__ModuleLoader__.load({
               }))
       }),
 
-      drag !== undefined && drag.moved && sourcePos !== undefined
+      drag !== undefined && drag.moved && drag.mode === 'link' && sourcePos !== undefined
         ? h('line', {
             x1: sourcePos.x, y1: sourcePos.y, x2: drag.x, y2: drag.y,
             stroke: drag.mode === 'remove' ? COLORS.red : 'currentColor',
@@ -294,6 +304,9 @@ window.__ModuleLoader__.load({
         const stateColor = node.kind === 'role' ? COLORS.role : colorOf(node.name)
         const isDropTarget = dropTarget === node.name
         const removing = drag !== undefined && drag.from === node.name && drag.mode === 'remove' && drag.moved
+        const ghost = drag !== undefined && drag.from === node.name && drag.mode === 'remove'
+          ? { dx: drag.x - drag.ox, dy: drag.y - drag.oy }
+          : undefined
         return h('g', {
           key: node.name,
           transform: `translate(${position.x - NODE_W / 2}, ${position.y - NODE_H})`,
@@ -338,6 +351,8 @@ window.__ModuleLoader__.load({
       const [linkTarget, setLinkTarget] = useState('')
       const [panelOpen, setPanelOpen] = useState(true)
       const [sessions, setSessions] = useState([])
+      const [removalActive, setRemovalActive] = useState(false)
+      const zoneRef = useRef(undefined)
       const [cardPos, setCardPos] = useState(() => {
         try {
           const saved = JSON.parse(globalThis.localStorage?.getItem('skill-loom:card') ?? 'null')
@@ -513,6 +528,16 @@ window.__ModuleLoader__.load({
         }
       }
 
+      const dropToRemove = (name, clientX, clientY) => {
+        // Measure before hiding the zone; the ref is still bound to the element
+        // that the drop landed on.
+        const rect = zoneRef.current?.getBoundingClientRect()
+        setRemovalActive(false)
+        if (rect === undefined) return
+        const inside = clientX >= rect.left && clientX <= rect.right && clientY >= rect.top && clientY <= rect.bottom
+        if (inside) void send('members', { action: 'remove_members', remove: [name] })
+      }
+
       const dropOnNode = (payload, target) => {
         const separator = payload.indexOf(':')
         if (separator < 0) return
@@ -575,7 +600,8 @@ window.__ModuleLoader__.load({
                   },
                   onDropOnNode: dropOnNode,
                   onRemoveEdge: edge => void send('edges', { action: 'unlink', from: edge.from, to: edge.to }),
-                  onRemoveMember: name => void send('members', { action: 'remove_members', remove: [name] }),
+                  onRemovalDrag: setRemovalActive,
+                  onRemoveDrop: dropToRemove,
                 })
               : h('div', { key: 'empty', style: { ...styles.empty, padding: 24 } },
                 detail.status === 'error' ? detail.error
@@ -585,6 +611,7 @@ window.__ModuleLoader__.load({
                       : '选择一个角色查看依赖图'),
           ])),
 
+        removalActive ? h('div', { ref: zoneRef, style: styles.trashZone }, '拖到此处移除') : null,
         h('div', { style: { ...styles.roleCard, left: cardPos.x, top: cardPos.y } },
           h('div', {
             style: { ...styles.cardHead, cursor: dragging ? 'grabbing' : 'grab' },
