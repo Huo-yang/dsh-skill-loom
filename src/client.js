@@ -270,10 +270,6 @@ window.__ModuleLoader__.load({
         onPointerUp: endLink,
         onPointerCancel: () => setDrag(undefined),
       },
-      h('defs', null, h('marker', {
-        id: 'loom-arrow', viewBox: '0 0 8 8', refX: 7, refY: 4,
-        markerWidth: 7, markerHeight: 7, orient: 'auto-start-reverse',
-      }, h('path', { d: 'M0,0 L8,4 L0,8 z', fill: 'currentColor', opacity: 0.7 }))),
 
       edges.map((edge, index) => {
         const route = pathOf(edge)
@@ -287,7 +283,6 @@ window.__ModuleLoader__.load({
             strokeOpacity: dragging ? 0.9 : edge.include ? 0.22 : 0.5,
             strokeWidth: dragging ? 1.8 : 1.4,
             strokeDasharray: edge.include || dragging ? '4 3' : undefined,
-            markerEnd: dragging ? undefined : 'url(#loom-arrow)',
           }),
           // Only a real dependency can be detached; an include line is membership.
           edge.include || dragging
