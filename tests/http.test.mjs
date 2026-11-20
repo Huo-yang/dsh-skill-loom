@@ -22,6 +22,11 @@ const role = (overrides = {}) => ({
 const storeOf = (...roles) => {
   const byId = new Map(roles.map(item => [item.id, item]))
   return {
+    removed: [],
+    async remove(id) {
+      this.removed.push(id)
+      return byId.delete(id)
+    },
     async readAll() {
       return [...byId.values()]
     },
@@ -400,4 +405,53 @@ test('a host without the session hook reports it instead of crashing', async () 
   const handler = createResource({ store: storeOf(role()), catalog: catalogOf({}) })
   assert.equal((await handler(get('/skill-loom/sessions'))).status, 405)
   assert.equal((await handler(post('/skill-loom/sessions/bind', { sessionId: 's' }))).status, 405)
+})
+// --- fields and delete ----------------------------------------------------
+
+test('the fields route only accepts field actions', async () => {
+  const calls = []
+  const handler = createResource({
+    store: storeOf(role()),
+    catalog: catalogOf({}),
+    mutate: async input => {
+      calls.push(input)
+      return { ok: true }
+    },
+  })
+  const ok = await handler(post(`/skill-loom/roles/${UUID_A}/fields`, { action: 'set_persona', persona: 'You review.' }))
+  assert.equal(ok.status, 200)
+  assert.equal(calls[0].persona, 'You review.')
+
+  const refused = await handler(post(`/skill-loom/roles/${UUID_A}/fields`, { action: 'add_members', add: ['a'] }))
+  assert.equal(refused.status, 400)
+})
+
+test('deleting a role removes its file', async () => {
+  const store = storeOf(role())
+  const handler = createResource({ store, catalog: catalogOf({}) })
+  const response = await handler(post(`/skill-loom/roles/${UUID_A}/delete`, {}))
+  assert.equal(response.status, 200)
+  assert.deepEqual(store.removed, [UUID_A])
+})
+
+test('deleting an unknown role is a 404', async () => {
+  const handler = createResource({ store: storeOf(role()), catalog: catalogOf({}) })
+  const response = await handler(post(`/skill-loom/roles/${UUID_B}/delete`, {}))
+  assert.equal(response.status, 404)
+})
+
+test('deleting with a stale revision is refused', async () => {
+  const store = storeOf(role({ revision: 5 }))
+  const handler = createResource({ store, catalog: catalogOf({}) })
+  const response = await handler(post(`/skill-loom/roles/${UUID_A}/delete`, { expectedRevision: 2 }))
+  assert.equal(response.status, 409)
+  assert.deepEqual(store.removed, [])
+})
+
+test('a cross-origin delete is refused', async () => {
+  const store = storeOf(role())
+  const handler = createResource({ store, catalog: catalogOf({}) })
+  const response = await handler(post(`/skill-loom/roles/${UUID_A}/delete`, {}, { origin: 'https://evil.example' }))
+  assert.equal(response.status, 403)
+  assert.deepEqual(store.removed, [])
 })
