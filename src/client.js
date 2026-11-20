@@ -84,6 +84,13 @@ window.__ModuleLoader__.load({
         borderLeft: `3px solid ${COLORS.red}`, background: 'var(--dsw-alias-bg-layer-2, rgba(127,127,127,.1))',
       },
       empty: { fontSize: 12, opacity: 0.6, padding: '8px 2px' },
+      toast: {
+        position: 'absolute', top: 10, left: '50%', transform: 'translateX(-50%)',
+        zIndex: 6, padding: '6px 12px', borderRadius: 8, fontSize: 12, maxWidth: '70%',
+        background: 'var(--dsw-alias-bg-layer-2, #ffffff)',
+        border: '1px solid var(--dsw-alias-border-l2, rgba(127,127,127,.3))',
+        boxShadow: '0 4px 16px rgba(0,0,0,.12)', pointerEvents: 'none', color: 'inherit',
+      },
       trashZone: {
         position: 'absolute', bottom: 18, left: '50%', transform: 'translateX(-50%)',
         padding: '10px 22px', borderRadius: 10, border: '2px dashed ' + COLORS.red,
@@ -409,6 +416,7 @@ window.__ModuleLoader__.load({
       const [cardCollapsed, setCardCollapsed] = useState(false)
       const [sessions, setSessions] = useState([])
       const [removalActive, setRemovalActive] = useState(false)
+      const [notice, setNotice] = useState(undefined)
       const zoneRef = useRef(undefined)
       const cardKey = compact ? 'skill-loom:card-compact' : 'skill-loom:card'
       const [cardPos, setCardPos] = useState(() => {
@@ -521,6 +529,12 @@ window.__ModuleLoader__.load({
         }
       }, [])
 
+      useEffect(() => {
+        if (notice === undefined) return undefined
+        const timer = setTimeout(() => setNotice(undefined), 2500)
+        return () => clearTimeout(timer)
+      }, [notice])
+
       useEffect(() => { void loadList() }, [loadList])
       useEffect(() => { void loadSessions() }, [loadSessions])
 
@@ -541,7 +555,7 @@ window.__ModuleLoader__.load({
         if (first !== undefined) setSelectedRole(first.id)
       }, [list, selectedRole])
 
-      const send = async (path, payload) => {
+      const send = async (path, payload, message) => {
         const role = detail.role
         setPending(true)
         setError(undefined)
@@ -558,7 +572,9 @@ window.__ModuleLoader__.load({
               : (body.message ?? body.code ?? body.error ?? `HTTP ${response.status}`))
           }
           await Promise.all([loadList(), loadDetail(role.id)])
+          if (message !== undefined) setNotice(message)
         } catch (cause) {
+          setNotice(undefined)
           setError(String(cause?.message ?? cause))
         } finally {
           setPending(false)
@@ -658,7 +674,7 @@ window.__ModuleLoader__.load({
         if (onRole) void send('members', { action: 'add_members', add: [value] })
         // A skill dragged in from the list only adds an edge; migrating an
         // existing node's dependencies is the box-drag gesture below.
-        else if (value !== target) void send('edges', { action: 'link', from: value, to: target })
+        else if (value !== target) void send('edges', { action: 'link', from: value, to: target }, '已新增依赖：' + value + ' → ' + target)
       }
 
       const roleReady = detail.status === 'ready'
@@ -716,7 +732,7 @@ window.__ModuleLoader__.load({
                     // skill"; skill-to-skill means "requires".
                     if (from === '__role__') void send('members', { action: 'add_members', add: [to] })
                     else if (to === '__role__') void send('members', { action: 'add_members', add: [from] })
-                    else void send('edges', { action: 'reparent', from, to })
+                    else void send('edges', { action: 'reparent', from, to }, '已把 ' + from + ' 的依赖迁移到 ' + to)
                   },
                   onDropOnNode: dropOnNode,
                   onRemoveEdge: edge => void send('edges', { action: 'unlink', from: edge.from, to: edge.to }),
@@ -731,6 +747,11 @@ window.__ModuleLoader__.load({
                       : '选择一个角色查看依赖图'),
           ])),
 
+        error !== undefined
+          ? h('div', { style: { ...styles.toast, color: COLORS.red, borderColor: COLORS.red } }, error)
+          : notice !== undefined
+            ? h('div', { style: styles.toast }, notice)
+            : null,
         removalActive ? h('div', { ref: zoneRef, style: styles.trashZone }, '拖到此处移除') : null,
         h('div', { style: cardStyle }, [
           h('div', {
