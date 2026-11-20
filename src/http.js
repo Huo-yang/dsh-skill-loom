@@ -23,6 +23,7 @@ export const MAX_BODY_BYTES = 64 * 1024
 
 /** The only actions the browser may perform, per route. */
 const MEMBER_ACTIONS = new Set(['add_members', 'remove_members'])
+const FIELD_ACTIONS = new Set(['set_name', 'set_persona'])
 const EDGE_ACTIONS = new Set(['link', 'unlink'])
 
 const json = (body, status = 200) => new Response(JSON.stringify(body), {
@@ -110,22 +111,27 @@ export function createResource({ store, catalog, exists, mutate, sessions }) {
 
     try {
       const expectedRevision = typeof input.expectedRevision === 'number' ? input.expectedRevision : undefined
-      const payload = MEMBER_ACTIONS.has(action)
-        ? {
-            action,
-            role: id,
-            add: Array.isArray(input.add) ? input.add : undefined,
-            remove: Array.isArray(input.remove) ? input.remove : undefined,
-            expectedRevision,
-          }
-        : {
-            action,
-            role: id,
-            from: typeof input.from === 'string' ? input.from : undefined,
-            to: typeof input.to === 'string' ? input.to : undefined,
-            why: typeof input.why === 'string' ? input.why : undefined,
-            expectedRevision,
-          }
+      let payload
+      if (MEMBER_ACTIONS.has(action)) {
+        payload = {
+          action,
+          role: id,
+          add: Array.isArray(input.add) ? input.add : undefined,
+          remove: Array.isArray(input.remove) ? input.remove : undefined,
+          expectedRevision,
+        }
+      } else if (FIELD_ACTIONS.has(action)) {
+        payload = { action, role: id, name: input.name, persona: input.persona, expectedRevision }
+      } else {
+        payload = {
+          action,
+          role: id,
+          from: typeof input.from === 'string' ? input.from : undefined,
+          to: typeof input.to === 'string' ? input.to : undefined,
+          why: typeof input.why === 'string' ? input.why : undefined,
+          expectedRevision,
+        }
+      }
       const result = await mutate(payload)
       return json({ ok: true, result })
     } catch (error) {
@@ -203,6 +209,29 @@ export function createResource({ store, catalog, exists, mutate, sessions }) {
         const id = decodeURIComponent(memberMatch[1])
         if (method === 'POST') return await write(request, id, MEMBER_ACTIONS)
         return json({ error: 'method-not-allowed' }, 405)
+      }
+
+      const fieldMatch = /^roles\/([^/]+)\/fields$/.exec(rest)
+      if (fieldMatch !== null) {
+        const id = decodeURIComponent(fieldMatch[1])
+        if (method === 'POST') return await write(request, id, FIELD_ACTIONS)
+        return json({ error: 'method-not-allowed' }, 405)
+      }
+
+      const deleteMatch = /^roles\/([^/]+)\/delete$/.exec(rest)
+      if (deleteMatch !== null) {
+        const id = decodeURIComponent(deleteMatch[1])
+        if (method !== 'POST') return json({ error: 'method-not-allowed' }, 405)
+        if (!isLocalOrigin(request)) return json({ error: 'cross-origin' }, 403)
+        const body = await readBody(request)
+        if (body.tooLarge === true) return json({ error: 'body-too-large' }, 413)
+        const role = await store.read(id)
+        if (role === undefined) return json({ error: 'role-not-found', id }, 404)
+        if (typeof body.value?.expectedRevision === 'number' && role.revision !== body.value.expectedRevision) {
+          return json({ error: 'conflict', current: role }, 409)
+        }
+        await store.remove(id)
+        return json({ ok: true, result: { id } })
       }
 
       const edgeMatch = /^roles\/([^/]+)\/edges$/.exec(rest)

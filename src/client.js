@@ -555,6 +555,52 @@ window.__ModuleLoader__.load({
         }
       }
 
+      const unbindSession = async sessionId => {
+        setPending(true)
+        setError(undefined)
+        try {
+          const response = await fetch(`${API}/sessions/unbind`, {
+            method: 'POST',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({ sessionId }),
+          })
+          if (!response.ok) throw new Error(`HTTP ${response.status}`)
+          await loadSessions()
+        } catch (cause) {
+          setError(String(cause?.message ?? cause))
+        } finally {
+          setPending(false)
+        }
+      }
+
+      const deleteRole = async () => {
+        const current = detail.role
+        if (current === undefined) return
+        setPending(true)
+        setError(undefined)
+        try {
+          const response = await fetch(`${API}/roles/${encodeURIComponent(current.id)}/delete`, {
+            method: 'POST',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({ expectedRevision: current.revision }),
+          })
+          const body = await response.json().catch(() => ({}))
+          if (!response.ok) {
+            throw new Error(body.error === 'conflict'
+              ? '这个角色刚被别处修改过，请刷新后再操作'
+              : (body.message ?? body.error ?? `HTTP ${response.status}`))
+          }
+          setSelectedRole(undefined)
+          setSelectedSkill(undefined)
+          setDetail({ status: 'idle' })
+          await Promise.all([loadList(), loadSessions()])
+        } catch (cause) {
+          setError(String(cause?.message ?? cause))
+        } finally {
+          setPending(false)
+        }
+      }
+
       const dropToRemove = (name, clientX, clientY) => {
         // Measure before hiding the zone; the ref is still bound to the element
         // that the drop landed on.
@@ -678,6 +724,18 @@ window.__ModuleLoader__.load({
               roleReady && session.roleId === role?.id
                 ? '已绑定本角色'
                 : session.roleId !== undefined && session.roleId !== null ? '已绑定其他角色' : '未绑定'),
+            session.roleId === undefined || session.roleId === null
+              ? null
+              : h('button', {
+                  key: 'x',
+                  style: { ...styles.button(!pending), marginLeft: 'auto', height: 18, padding: '0 6px' },
+                  disabled: pending,
+                  title: '解除该会话的绑定',
+                  onClick: event => {
+                    event.stopPropagation()
+                    void unbindSession(session.sessionId)
+                  },
+                }, '解绑'),
           ]))),
           ),
 
@@ -717,16 +775,57 @@ window.__ModuleLoader__.load({
               h(SkillDetail, {
                 role, plan, skills: list.skills, skillName: selectedSkill,
                 pending, error, linkTarget, setLinkTarget, send,
+                onDeleteRole: deleteRole,
               })))
           : null)
     }
-    function SkillDetail({ role, plan, health, skills, skillName, pending, error, linkTarget, setLinkTarget, send }) {
+    function SkillDetail({ role, plan, health, skills, skillName, pending, error, linkTarget, setLinkTarget, send, onDeleteRole }) {
+      const [personaDraft, setPersonaDraft] = useState(role.persona?.prefix ?? '')
+      const [confirmDelete, setConfirmDelete] = useState(false)
+
+      useEffect(() => {
+        setPersonaDraft(role.persona?.prefix ?? '')
+        setConfirmDelete(false)
+      }, [role.id, role.revision])
+
       if (skillName === undefined) {
         const summary = [
           h('h2', { key: 'h', style: styles.h2 }, role.name),
           h('div', { key: 'm', style: styles.muted },
             `revision ${role.revision} · 闭包 ${plan.closure.length} · 目录约 ${plan.catalogChars} 字符`),
-          h('div', { key: 'e', style: { ...styles.empty, marginTop: 12 } }, '点击上图节点或下方技能，编辑它的依赖关系。'),
+          h('div', { key: 'p', style: { ...styles.sectionTitle, marginTop: 14 } }, '人设（persona）'),
+          h('textarea', {
+            key: 'pt',
+            value: personaDraft,
+            onChange: event => setPersonaDraft(event.target.value),
+            rows: 4,
+            placeholder: '这段文字会作为该角色会话的系统提示首段。',
+            style: {
+              width: '100%', boxSizing: 'border-box', resize: 'vertical',
+              font: 'inherit', fontSize: 12, padding: 8, borderRadius: 6,
+              color: 'inherit', background: 'var(--dsw-alias-bg-layer-1, #ffffff)',
+              border: '1px solid var(--dsw-alias-border-l2, rgba(127,127,127,.35))',
+            },
+          }),
+          h('div', { key: 'pb', style: { display: 'flex', gap: 8, marginTop: 8 } }, [
+            h('button', {
+              key: 'save',
+              style: { ...styles.button(pending || personaDraft === (role.persona?.prefix ?? '')), marginLeft: 0 },
+              disabled: pending || personaDraft === (role.persona?.prefix ?? ''),
+              onClick: () => void send('fields', { action: 'set_persona', persona: personaDraft }),
+            }, '保存人设'),
+            h('button', {
+              key: 'del',
+              style: { ...styles.button(!pending), marginLeft: 'auto', borderColor: confirmDelete ? COLORS.red : undefined, color: confirmDelete ? COLORS.red : 'inherit' },
+              disabled: pending,
+              title: '删除角色会同时删除它的整张图',
+              onClick: () => {
+                if (confirmDelete) void onDeleteRole()
+                else setConfirmDelete(true)
+              },
+            }, confirmDelete ? '确认删除角色' : '删除角色'),
+          ]),
+          h('div', { key: 'e', style: { ...styles.empty, marginTop: 14 } }, '点击上图节点或下方技能，编辑它的依赖关系。'),
         ]
         if (error !== undefined) summary.push(h('div', { key: 'err', style: styles.error }, error))
         return h('div', null, summary)
