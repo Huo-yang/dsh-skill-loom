@@ -14,18 +14,31 @@ window.__ModuleLoader__.load({
     const COLORS = { runtime: '#2ea043', red: '#d1242f', gray: '#8b949e', member: '#1f6feb', role: '#8250df' }
 
     const styles = {
-      page: { display: 'flex', flexDirection: 'column', height: '100%', minHeight: 0, font: 'inherit', color: 'inherit' },
-      canvas: {
-        flex: '1 1 45%', minHeight: 200, overflow: 'auto',
-        borderBottom: '1px solid var(--dsw-border-subtle, rgba(127,127,127,.24))',
+      stage: { position: 'relative', height: '100%', minHeight: 0, font: 'inherit', color: 'inherit', overflow: 'hidden' },
+      canvasFill: {
+        position: 'absolute', inset: 0, overflow: 'auto',
         background: 'var(--dsw-surface-sunken, rgba(127,127,127,.04))',
       },
-      bottom: { flex: '1 1 55%', display: 'flex', minHeight: 180, overflow: 'hidden' },
-      skillList: {
-        width: 250, flex: '0 0 250px', overflowY: 'auto', padding: '10px 8px',
-        borderRight: '1px solid var(--dsw-border-subtle, rgba(127,127,127,.24))',
+      roleCard: {
+        position: 'absolute', top: 12, left: 12, width: 240, padding: '10px 12px',
+        borderRadius: 10, background: 'var(--dsw-surface-raised, rgba(32,32,32,.92))',
+        border: '1px solid var(--dsw-border-subtle, rgba(127,127,127,.28))',
+        boxShadow: '0 6px 20px rgba(0,0,0,.18)', display: 'flex', flexDirection: 'column',
       },
-      detail: { flex: '1 1 auto', overflowY: 'auto', padding: '14px 18px', minWidth: 0 },
+      cardTitle: { fontSize: 12, fontWeight: 600, opacity: 0.7, marginBottom: 8 },
+      panel: {
+        position: 'absolute', top: 12, right: 12, bottom: 12, width: 340,
+        display: 'flex', flexDirection: 'column', overflow: 'hidden',
+        borderRadius: 10, background: 'var(--dsw-surface-raised, rgba(32,32,32,.95))',
+        border: '1px solid var(--dsw-border-subtle, rgba(127,127,127,.28))',
+        boxShadow: '0 6px 20px rgba(0,0,0,.18)',
+      },
+      panelHead: { padding: '10px 10px 6px', display: 'flex', gap: 6 },
+      skillScroll: {
+        maxHeight: '38%', overflowY: 'auto', padding: '0 8px',
+        borderBottom: '1px solid var(--dsw-border-subtle, rgba(127,127,127,.2))',
+      },
+      panelBody: { flex: '1 1 auto', overflowY: 'auto', padding: '12px 14px' },
       title: { fontSize: 12, fontWeight: 600, opacity: 0.7, padding: '2px 8px 8px' },
       item: active => ({
         padding: '6px 8px', borderRadius: 5, cursor: 'pointer', marginBottom: 2,
@@ -126,11 +139,11 @@ window.__ModuleLoader__.load({
 
       return h('svg', {
         viewBox: `0 0 ${state.width} ${state.height}`,
-        width: '100%',
+        width: state.width,
         height: state.height,
         role: 'img',
         'aria-label': `${role.name} 的依赖图`,
-        style: { display: 'block' },
+        style: { display: 'block', margin: '0 auto' },
       },
       h('defs', null, h('marker', {
         id: 'loom-arrow', viewBox: '0 0 8 8', refX: 7, refY: 4,
@@ -186,6 +199,7 @@ window.__ModuleLoader__.load({
       const [error, setError] = useState(undefined)
       const [filter, setFilter] = useState('')
       const [linkTarget, setLinkTarget] = useState('')
+      const [panelOpen, setPanelOpen] = useState(true)
 
       const loadList = useCallback(async () => {
         try {
@@ -219,6 +233,14 @@ window.__ModuleLoader__.load({
         void loadDetail(selectedRole)
       }, [selectedRole, loadDetail])
 
+      // Keep a role selected once the list arrives, so the canvas is never empty
+      // by accident.
+      useEffect(() => {
+        if (selectedRole !== undefined) return
+        const first = list.roles[0]
+        if (first !== undefined) setSelectedRole(first.id)
+      }, [list, selectedRole])
+
       const send = async (path, payload) => {
         const role = detail.role
         setPending(true)
@@ -246,59 +268,70 @@ window.__ModuleLoader__.load({
       const roleReady = detail.status === 'ready'
       const role = roleReady ? detail.role : undefined
       const plan = roleReady ? detail.plan : undefined
-      const health = roleReady ? detail.health : undefined
 
-      return h('div', { style: styles.page },
-        h('div', { style: styles.canvas },
-          detail.status === 'error' ? h('div', { style: styles.error }, detail.error) : null,
+      const filtered = list.skills.filter(skill => filter === '' || skill.name.includes(filter))
+
+      return h('div', { style: styles.stage },
+        h('div', { style: panelOpen ? { ...styles.canvasFill, paddingRight: 356 } : styles.canvasFill },
           roleReady
-            ? h(Graph, { role, plan, health, selected: selectedSkill, onSelect: setSelectedSkill })
-            : h('div', { style: { ...styles.empty, padding: 16 } },
-              detail.status === 'loading' ? '加载中…' : '选择一个角色查看它的依赖图')),
+            ? h(Graph, { role, plan, selected: selectedSkill, onSelect: setSelectedSkill })
+            : h('div', { style: { ...styles.empty, padding: 24 } },
+              detail.status === 'error' ? detail.error
+                : detail.status === 'loading' ? '加载中…'
+                  : list.status === 'ready' && list.roles.length === 0
+                    ? '还没有角色。让 agent 用 role_graph 建一个，刷新即可看到。'
+                    : '选择一个角色查看依赖图')),
 
-        h('div', { style: styles.bottom },
-          h('div', { style: styles.skillList },
-            h('div', { style: styles.title }, `角色 · ${list.roles.length}`),
-            list.roles.map(item => h('div', {
-              key: item.id,
-              style: styles.item(selectedRole === item.id),
-              onClick: () => { setSelectedRole(item.id); setSelectedSkill(undefined) },
-            },
-            h('div', { style: styles.itemName }, h('span', { style: styles.dot(COLORS.role) }), item.name),
-            h('div', { style: styles.meta }, `${item.runtime.length} 可用 · ${item.red.length} 缺失`))),
-            h('div', { style: styles.title }, `技能 · ${list.skills.length}`),
-            h('input', {
-              value: filter,
-              onChange: event => setFilter(event.target.value),
-              placeholder: '过滤技能…',
-              style: { ...styles.select, width: '92%', margin: '0 4px 8px' },
-            }),
-            list.skills
-              .filter(skill => filter === '' || skill.name.includes(filter))
-              .map(skill => {
-                const member = roleReady && (plan.members ?? []).includes(skill.name)
-                const stateColor = !roleReady ? COLORS.member
-                  : (plan.red ?? []).includes(skill.name) ? COLORS.red
-                    : (plan.gray ?? []).some(row => row.name === skill.name) ? COLORS.gray
-                      : member ? COLORS.runtime : COLORS.member
+        h('div', { style: styles.roleCard },
+          h('div', { style: styles.cardTitle }, '技能编排'),
+          h('select', {
+            value: selectedRole ?? '',
+            onChange: event => { setSelectedRole(event.target.value); setSelectedSkill(undefined) },
+            style: { ...styles.select, width: '100%' },
+          }, list.roles.map(item => h('option', { key: item.id, value: item.id },
+            `${item.name}（${item.runtime.length} 可用 / ${item.red.length} 缺失）`))),
+          roleReady
+            ? h('div', { style: { ...styles.meta, marginTop: 6 } },
+              `revision ${role.revision} · 闭包 ${plan.closure.length} · 约 ${plan.catalogChars} 字符`)
+            : null,
+          h('button', {
+            style: { ...styles.button(!panelOpen), marginLeft: 0, marginTop: 8 },
+            onClick: () => setPanelOpen(open => !open),
+          }, panelOpen ? '收起面板' : '展开面板')),
+
+        panelOpen && roleReady
+          ? h('div', { style: styles.panel },
+            h('div', { style: styles.panelHead },
+              h('input', {
+                value: filter,
+                onChange: event => setFilter(event.target.value),
+                placeholder: '过滤技能…',
+                style: { ...styles.select, flex: '1 1 auto' },
+              })),
+            h('div', { style: styles.skillScroll },
+              filtered.map(skill => {
+                const member = (plan.members ?? []).includes(skill.name)
+                const stateColor = (plan.red ?? []).includes(skill.name) ? COLORS.red
+                  : (plan.gray ?? []).some(row => row.name === skill.name) ? COLORS.gray
+                    : member ? COLORS.runtime : COLORS.member
                 return h('div', {
                   key: skill.name,
                   style: styles.item(selectedSkill === skill.name),
                   onClick: () => setSelectedSkill(skill.name),
-                },
-                h('div', { style: styles.itemName }, h('span', { style: styles.dot(stateColor) }), skill.name),
-                h('div', { style: styles.meta }, member ? '已纳入' : (skill.source ?? '')))
+                }, [
+                  h('div', { key: 'n', style: styles.itemName },
+                    h('span', { style: styles.dot(stateColor) }),
+                    skill.name),
+                  h('div', { key: 'm', style: styles.meta }, member ? '已纳入' : (skill.source ?? '')),
+                ])
               })),
-
-          h('div', { style: styles.detail },
-            role === undefined
-              ? h('div', { style: styles.empty }, '选择左侧角色后，可查看并编辑技能连线。')
-              : h(SkillDetail, {
-                role, plan, health, skills: list.skills, skillName: selectedSkill,
+            h('div', { style: styles.panelBody },
+              h(SkillDetail, {
+                role, plan, skills: list.skills, skillName: selectedSkill,
                 pending, error, linkTarget, setLinkTarget, send,
-              }))))
+              })))
+          : null)
     }
-
     function SkillDetail({ role, plan, health, skills, skillName, pending, error, linkTarget, setLinkTarget, send }) {
       if (skillName === undefined) {
         const summary = [
