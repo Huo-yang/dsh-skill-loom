@@ -17,6 +17,10 @@ window.__ModuleLoader__.load({
       stage: { position: 'relative', height: '100%', minHeight: 0, font: 'inherit', color: 'inherit', overflow: 'hidden' },
       canvasFill: {
         position: 'absolute', inset: 0, overflow: 'hidden',
+        display: 'flex', alignItems: 'safe center', justifyContent: 'safe center',
+        // Bias the initial view a little above the geometric centre: a graph
+        // that starts dead-centre reads as bottom-heavy once rows are added.
+        paddingBottom: '12vh',
         background: 'linear-gradient(rgba(0,0,0,.025), rgba(0,0,0,.025)), var(--dsw-alias-bg-base, #ffffff)',
         // Without this a right-drag starts a text selection and the highlight
         // fights the panning gesture.
@@ -410,11 +414,7 @@ window.__ModuleLoader__.load({
             style: { ...styles.button(!panelOpen), marginLeft: 0, marginTop: 8 },
             onClick: () => setPanelOpen(open => !open),
           }, panelOpen ? '收起面板' : '展开面板'),
-          h('button', {
-            style: { ...styles.button(true), marginLeft: 0, marginTop: 6 },
-            onClick: () => setPan({ x: 0, y: 0 }),
-            title: '把画布移回中心',
-          }, '视图复位')),
+          ),
 
         panelOpen && roleReady
           ? h('div', { style: styles.panel },
