@@ -1,6 +1,6 @@
 {
   "name": "dsh-skill-loom",
-  "version": "0.0.0",
+  "version": "0.1.0",
   "private": true,
   "type": "module",
   "description": "Weave skills into roles: per-role skill dependency graphs for DeepSeek Harness",
