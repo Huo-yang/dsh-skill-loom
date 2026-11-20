@@ -1,6 +1,6 @@
 # dsh-skill-loom 架构设计
 
-> 状态：**v3.0（M1–M3 完成并真机验证；131 条测试；M4 人工可操作未开始）**
+> 状态：**v3.1（M1–M3 完成；M4a 成员增删已上线；151 条测试）**
 > 设计核对版本：DSH Web `0.2.2-rc.5`
 > 一句话：**一个角色 = 一张图 = 一个文件**；技能是节点，连线是依赖；agent 与人共用同一张图的读写面。
 
@@ -779,3 +779,22 @@ client 半需要读图、读仓库、写图，但正文未定义接口。补齐�
 | 页面渲染 | ✅ 用户确认 |
 
 已知留待 M4 的前置问题：页面不会自动刷新，agent 改完角色后需要手动刷新。
+---
+
+## 16. M4a：成员增删
+
+### 16.1 写通路
+
+- `POST /skill-loom/roles/<id>/members`，body `{ action: 'add_members' | 'remove_members', add?/remove?, expectedRevision? }`。
+- 只放行这两个动作；其余动作（`create`、`bind`、`link`…）仍只经 agent 工具，页面拿不到。
+- 写请求校验 `Origin`：浏览器跨源会被拒；字面量 `null`（沙箱 iframe）也拒；无 `Origin` 的本机工具（curl、测试）放行。
+- 请求体上限 64KB，超限在解析前就返回 413。
+- 成功回 200；校验失败回 400 带 `code`；revision 不匹配回 **409 并附当前角色**，页面据此提示“刚被修改过”。
+
+### 16.2 两个新坑
+
+**1. `WebResourceRoute` 只回答 GET/HEAD。**
+宿主的 resource 路由对 POST 直接回 `405 allow: GET, HEAD`，请求根本到不了处理函数。写路由必须用 `WebRoute.handler`（Node 风格 `req`/`res`）。适配器 `toNodeHandler` 把 Fetch 风格的 resource 包成 handler，两条路径共用同一套逻辑。
+
+**2. 页面发起的写入没有 agent。**
+`api` 的目录回调在 `agent === undefined` 时只读全局层，于是预设挂载的 `dsh-doc` 在保存时被判为缺失、锚点被丢弃。修复：目录并集抽成 `catalog.js` 的 `buildCatalog`，无 agent 时并集所有活跃 agent 的作用域；有 agent 时只并集它自己的。这是同一个 bug 的第三次出现（读路径、HTTP 读、写路径），因此这次直接抽成模块并加 6 条测试。
