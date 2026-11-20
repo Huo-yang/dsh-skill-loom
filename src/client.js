@@ -846,15 +846,44 @@ window.__ModuleLoader__.load({
 
       const filtered = list.skills.filter(skill => filter === '' || skill.name.includes(filter))
 
-      // A right-sidebar pane is narrow, so the same page stacks vertically there
-      // instead of floating two absolute panels.
-      const stageStyle = { display: 'flex', flexDirection: 'column', height: '100%', minHeight: 0, position: 'relative', font: 'inherit', color: 'inherit', overflow: 'hidden' }
-      const canvasStyle = compact
-        ? { ...styles.canvasFill, position: 'relative', inset: 'auto', flex: '1 1 auto', minHeight: 160, paddingRight: 0 }
-        : { ...styles.canvasFill, position: 'relative', inset: 'auto', flex: '1 1 auto', minHeight: 200, paddingRight: 356 }
+      // Two panes in both layouts; only the split direction differs. The wide page
+      // puts the list beside the graph, the narrow one below it — no floating panel
+      // means nothing has to be lifted above it while dragging.
+      const stageStyle = {
+        display: 'flex',
+        flexDirection: compact ? 'column' : 'row',
+        height: '100%',
+        minHeight: 0,
+        position: 'relative',
+        font: 'inherit',
+        color: 'inherit',
+        overflow: 'hidden',
+      }
+      const canvasStyle = {
+        ...styles.canvasFill,
+        position: 'relative',
+        inset: 'auto',
+        flex: '1 1 auto',
+        minWidth: 0,
+        minHeight: compact ? 160 : 0,
+        paddingRight: 0,
+      }
       const panelStyle = compact
         ? { ...styles.panel, position: 'relative', top: 'auto', right: 'auto', bottom: 'auto', width: 'auto', flex: '1 1 48%', minHeight: 0, borderRadius: 0, border: 'none', boxShadow: 'none', zIndex: 1 }
-        : { ...styles.panel, zIndex: 2 }
+        : {
+            ...styles.panel,
+            position: 'relative',
+            top: 'auto',
+            right: 'auto',
+            bottom: 'auto',
+            width: 340,
+            flex: '0 0 340px',
+            borderRadius: 0,
+            boxShadow: 'none',
+            border: 'none',
+            borderLeft: '1px solid var(--dsw-alias-border-l2, rgba(127,127,127,.28))',
+            zIndex: 1,
+          }
       const listStyle = styles.skillScroll
 
       return h('div', { style: stageStyle },
@@ -862,8 +891,6 @@ window.__ModuleLoader__.load({
           ref: canvasRef,
           style: {
             ...canvasStyle,
-            // While a node is being carried it must stay above the floating panels.
-            ...(removalActive ? { zIndex: 4 } : {}),
             cursor: panning ? 'grabbing' : 'default',
           },
           onPointerDown: startPan,
@@ -929,7 +956,7 @@ window.__ModuleLoader__.load({
         // History controls sit on the drawing area itself: they act on the graph,
         // not on the role's identity, so they do not belong in the role card.
         roleReady
-          ? h('div', { style: { ...styles.historyBar, right: compact ? 12 : 368 } }, [
+          ? h('div', { style: { ...styles.historyBar, right: 12 } }, [
             h('button', {
               key: 'undo',
               style: { ...styles.button(!pending && (detail.history?.undo ?? 0) > 0), marginLeft: 0, height: 24, padding: '0 8px' },
