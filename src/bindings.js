@@ -8,7 +8,16 @@
  */
 
 import { mkdir, readFile, rename, writeFile } from 'node:fs/promises'
-import { dirname } from 'node:path'
+import { dirname, join } from 'node:path'
+
+/**
+ * Absolute path of the bindings document inside a roles directory.
+ * @param {string} rolesDir - the roles directory.
+ * @returns {string} path of `bindings.json` beside the role files.
+ */
+export function bindingsFileFor(rolesDir) {
+  return join(rolesDir, 'bindings.json')
+}
 
 /** A tiny JSON document mapping session ids to role ids. */
 export class BindingStore {

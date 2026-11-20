@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import test, { after } from 'node:test'
 
-import { BindingStore } from '../src/bindings.js'
+import { BindingStore, bindingsFileFor } from '../src/bindings.js'
 
 const roots = []
 after(async () => {
@@ -67,4 +67,9 @@ test('a corrupt file degrades to no bindings instead of throwing', async () => {
   assert.equal(await store.get('sess_a'), undefined)
   await store.set('sess_a', 'role-1')
   assert.equal(await store.get('sess_a'), 'role-1')
+})
+
+test('the bindings document lives beside the role files', () => {
+  const path = bindingsFileFor(join('home', 'roles'))
+  assert.ok(path.endsWith(join('home', 'roles', 'bindings.json')), path)
 })

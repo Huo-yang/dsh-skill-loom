@@ -20,14 +20,14 @@
 
 import { existsSync } from 'node:fs'
 import { homedir } from 'node:os'
-import { dirname, join } from 'node:path'
+import { join } from 'node:path'
 
 import { defineTool } from '@deepseek-ai/dsh-tools'
 import { PERSONA_PREFIX_SECTION } from '@deepseek-ai/dsh-system-prompt'
 
 import { RoleGraphError, createRoleGraphApi } from './api.js'
 import { computeHealth } from './graph.js'
-import { BindingStore } from './bindings.js'
+import { BindingStore, bindingsFileFor } from './bindings.js'
 import { installRole } from './runtime.js'
 import { RoleStore } from './store.js'
 
@@ -71,7 +71,7 @@ const PARAMETERS = {
 export function apply(ctx, config = {}) {
   const rolesDir = config.rolesDir ?? defaultRolesDir()
   const store = new RoleStore(rolesDir)
-  const bindings = new BindingStore(join(dirname(rolesDir), 'bindings.json'))
+  const bindings = new BindingStore(bindingsFileFor(rolesDir))
   /** @type {Map<string, { dispose: () => void }>} */
   const generations = new Map()
   let rebuildTimer
