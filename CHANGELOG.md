@@ -15,6 +15,9 @@
 
 ### 修复 / Fixed
 
+- 只读接口迁移到 `/skill-loom`：`/plugins/*` 属于客户端模块命名空间，占用会被其覆盖。
+- `webServer` 改为 `ctx.inject` 等待：启动阶段 `ctx.get` 拿不到服务，路由会被静默跳过。
+
 - 插件卸载后防抖定时器仍访问宿主服务，导致 `fatal load failure`。现在定时器与事件回调都带存活检查，异常不再逃逸到事件循环。
 - 绑定文件曾写到 `$DSH_HOME/bindings.json`，已改为 `$DSH_HOME/roles/bindings.json`。
 
