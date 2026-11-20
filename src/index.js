@@ -137,12 +137,22 @@ export function apply(ctx, config = {}) {
     const shadowNames = [...repo.keys()].filter(skillName => !runtime.has(skillName))
     const definitions = await definitionsFor(agent, shadowNames)
 
+    const wantsPersona = typeof role?.persona?.prefix === 'string' && role.persona.prefix !== ''
     const personaSection = agentPrompt?.getSectionOrder === undefined
       ? undefined
       : {
           name: PERSONA_PREFIX_SECTION,
           order: agentPrompt.getSectionOrder('DEPLOYMENT_PERSONA_PREFIX'),
         }
+    if (wantsPersona && personaSection === undefined) {
+      // The role does carry a persona, but this host exposes no section order for
+      // it. Skills keep working while the persona disappears, which is exactly the
+      // kind of half-working state that needs to be visible in the log.
+      logger?.warn?.(
+        `skill-loom: persona of role "${String(role?.name ?? role?.id)}" was not injected: ` +
+        'systemPrompt.getSectionOrder is unavailable on this host',
+      )
+    }
 
     const generation = installRole({
       skills: agentSkills,
@@ -153,6 +163,11 @@ export function apply(ctx, config = {}) {
       definitions,
       personaSection,
     })
+    if (wantsPersona && generation.persona !== true && personaSection !== undefined) {
+      logger?.warn?.(
+        `skill-loom: persona section for role "${String(role?.name ?? role?.id)}" was rejected by the prompt registry`,
+      )
+    }
     generations.set(sessionId, generation)
     return generation
   }
