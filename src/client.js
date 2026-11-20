@@ -378,7 +378,7 @@ window.__ModuleLoader__.load({
       const [error, setError] = useState(undefined)
       const [filter, setFilter] = useState('')
       const [linkTarget, setLinkTarget] = useState('')
-      const [panelOpen, setPanelOpen] = useState(true)
+      const [cardCollapsed, setCardCollapsed] = useState(false)
       const [sessions, setSessions] = useState([])
       const [removalActive, setRemovalActive] = useState(false)
       const zoneRef = useRef(undefined)
@@ -712,62 +712,71 @@ window.__ModuleLoader__.load({
           ])),
 
         removalActive ? h('div', { ref: zoneRef, style: styles.trashZone }, '拖到此处移除') : null,
-        h('div', { style: cardStyle },
+        h('div', { style: cardStyle }, [
           h('div', {
+            key: 'head',
             style: { ...styles.cardHead, cursor: dragging ? 'grabbing' : 'grab' },
             onPointerDown: startDrag,
             onPointerMove: moveDrag,
             onPointerUp: endDrag,
             onPointerCancel: endDrag,
             title: '拖动可移动面板',
-          }, [h('span', { key: 'g', style: { opacity: 0.5 } }, '⠿'), h('span', { key: 't' }, '技能编排')]),
-          h('select', {
-            value: selectedRole ?? '',
-            onChange: event => { setSelectedRole(event.target.value); setSelectedSkill(undefined) },
-            style: { ...styles.select, width: '100%' },
-          }, list.roles.map(item => h('option', { key: item.id, value: item.id },
-            `${item.name}（${item.runtime.length} 可用 / ${item.red.length} 缺失）`))),
-          roleReady
-            ? h('div', { style: { ...styles.meta, marginTop: 6 } },
-              `revision ${role.revision} · 闭包 ${plan.closure.length} · 约 ${plan.catalogChars} 字符`)
-            : null,
-          h('button', {
-            style: { ...styles.button(true), marginLeft: 0, marginTop: 8 },
-            title: panelOpen ? '隐藏技能面板，让图占满' : '重新显示技能面板',
-            onClick: () => setPanelOpen(open => !open),
-          }, panelOpen ? '收起面板' : '展开面板'),
-          h('div', { style: { ...styles.sectionTitle, marginTop: 10 } }, `会话 · ${sessions.length}`),
-          h('div', { style: { maxHeight: 130, overflowY: 'auto', marginTop: 2 } }, sessions.map(session => h('div', {
-            key: session.sessionId,
-            draggable: true,
-            onDragStart: event => {
-              event.dataTransfer.setData('text/plain', `session:${session.sessionId}`)
-              event.dataTransfer.effectAllowed = 'link'
-            },
-            style: { ...styles.item(false), cursor: 'grab' },
-            title: '拖到上方角色节点即可绑定该会话',
           }, [
-            h('div', { key: 'n', style: styles.itemName }, session.sessionId.slice(0, 8)),
-            h('div', { key: 'm', style: styles.meta },
-              roleReady && session.roleId === role?.id
-                ? '已绑定本角色'
-                : session.roleId !== undefined && session.roleId !== null ? '已绑定其他角色' : '未绑定'),
-            session.roleId === undefined || session.roleId === null
-              ? null
-              : h('button', {
-                  key: 'x',
-                  style: { ...styles.button(!pending), marginLeft: 'auto', height: 18, padding: '0 6px' },
-                  disabled: pending,
-                  title: '解除该会话的绑定',
-                  onClick: event => {
-                    event.stopPropagation()
-                    void unbindSession(session.sessionId)
-                  },
-                }, '解绑'),
-          ]))),
-          ),
+            h('span', { key: 'g', style: { opacity: 0.5 } }, '⠿'),
+            h('span', { key: 't' }, '技能编排'),
+            h('button', {
+              key: 'toggle',
+              style: { ...styles.button(true), marginLeft: 'auto', height: 18, padding: '0 6px' },
+              onPointerDown: event => event.stopPropagation(),
+              onClick: () => setCardCollapsed(value => !value),
+              title: cardCollapsed ? '展开角色面板' : '收起角色面板',
+            }, cardCollapsed ? '展开' : '收起'),
+          ]),
+          cardCollapsed ? null : h('div', { key: 'body' }, [
+            h('select', {
+              key: 'roles',
+              value: selectedRole ?? '',
+              onChange: event => { setSelectedRole(event.target.value); setSelectedSkill(undefined) },
+              style: { ...styles.select, width: '100%' },
+            }, list.roles.map(item => h('option', { key: item.id, value: item.id },
+              `${item.name}（${item.runtime.length} 可用 / ${item.red.length} 缺失）`))),
+            roleReady
+              ? h('div', { key: 'meta', style: { ...styles.meta, marginTop: 6 } },
+                `revision ${role.revision} · 闭包 ${plan.closure.length} · 约 ${plan.catalogChars} 字符`)
+              : null,
+            h('div', { key: 'sessions-title', style: { ...styles.sectionTitle, marginTop: 10 } }, `会话 · ${sessions.length}`),
+            h('div', { key: 'sessions', style: { maxHeight: 130, overflowY: 'auto', marginTop: 2 } }, sessions.map(session => h('div', {
+              key: session.sessionId,
+              draggable: true,
+              onDragStart: event => {
+                event.dataTransfer.setData('text/plain', `session:${session.sessionId}`)
+                event.dataTransfer.effectAllowed = 'link'
+              },
+              style: { ...styles.item(false), cursor: 'grab' },
+              title: '拖到角色节点即可绑定该会话',
+            }, [
+              h('div', { key: 'n', style: styles.itemName }, session.sessionId.slice(0, 8)),
+              h('div', { key: 'm', style: styles.meta },
+                roleReady && session.roleId === role?.id
+                  ? '已绑定本角色'
+                  : session.roleId !== undefined && session.roleId !== null ? '已绑定其他角色' : '未绑定'),
+              session.roleId === undefined || session.roleId === null
+                ? null
+                : h('button', {
+                    key: 'x',
+                    style: { ...styles.button(!pending), marginLeft: 'auto', height: 18, padding: '0 6px' },
+                    disabled: pending,
+                    title: '解除该会话的绑定',
+                    onClick: event => {
+                      event.stopPropagation()
+                      void unbindSession(session.sessionId)
+                    },
+                  }, '解绑'),
+            ]))),
+          ]),
+        ]),
 
-        panelOpen && roleReady
+        roleReady
           ? h('div', { style: panelStyle }, [
             h('div', { key: 'head', style: styles.panelHead }, [
               h('input', {
