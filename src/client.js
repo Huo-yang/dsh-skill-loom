@@ -610,6 +610,18 @@ window.__ModuleLoader__.load({
       }, [])
 
 
+      // Ctrl+Z / Ctrl+Shift+Z, the shortcuts every editor uses for this.
+      useEffect(() => {
+        const onKey = event => {
+          if (!(event.ctrlKey || event.metaKey)) return
+          if (String(event.key).toLowerCase() !== 'z') return
+          event.preventDefault()
+          void stepHistory(event.shiftKey ? 'redo' : 'undo')
+        }
+        document.addEventListener('keydown', onKey)
+        return () => document.removeEventListener('keydown', onKey)
+      }, [detail])
+
       useEffect(() => {
         if (notice === undefined) return undefined
         const timer = setTimeout(() => setNotice(undefined), 2500)
@@ -774,6 +786,38 @@ window.__ModuleLoader__.load({
         }
       }
 
+      const stepHistory = async direction => {
+        const current = detail.role
+        if (current === undefined) return
+        setPending(true)
+        setError(undefined)
+        try {
+          const response = await fetch('/skill-loom/roles/' + encodeURIComponent(current.id) + '/history', {
+            method: 'POST',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({ action: direction }),
+          })
+          const body = await response.json().catch(() => ({}))
+          if (!response.ok) {
+            throw new Error(body.error === 'no-history'
+              ? '没有可' + (direction === 'undo' ? '撤销' : '重做') + '的操作'
+              : (body.message ?? body.error ?? 'HTTP ' + response.status))
+          }
+          setDetail({
+            status: 'ready',
+            role: body.role,
+            plan: body.plan,
+            history: body.history,
+          })
+          await loadList()
+          setNotice(direction === 'undo' ? '已撤销上一步' : '已重做')
+        } catch (cause) {
+          setError(String(cause?.message ?? cause))
+        } finally {
+          setPending(false)
+        }
+      }
+
       const deleteRole = async () => {
         const current = detail.role
         if (current === undefined) return
@@ -927,8 +971,24 @@ window.__ModuleLoader__.load({
             h('span', { key: 'g', style: { opacity: 0.5 } }, '⠿'),
             h('span', { key: 't' }, '技能编排'),
             h('button', {
+              key: 'undo',
+              style: { ...styles.button(!pending && (detail.history?.undo ?? 0) > 0), marginLeft: 'auto', height: 18, padding: '0 6px' },
+              disabled: pending || (detail.history?.undo ?? 0) === 0,
+              onPointerDown: event => event.stopPropagation(),
+              onClick: () => void stepHistory('undo'),
+              title: '撤销上一步（Ctrl+Z）',
+            }, '↶'),
+            h('button', {
+              key: 'redo',
+              style: { ...styles.button(!pending && (detail.history?.redo ?? 0) > 0), marginLeft: 4, height: 18, padding: '0 6px' },
+              disabled: pending || (detail.history?.redo ?? 0) === 0,
+              onPointerDown: event => event.stopPropagation(),
+              onClick: () => void stepHistory('redo'),
+              title: '重做（Ctrl+Shift+Z）',
+            }, '↷'),
+            h('button', {
               key: 'toggle',
-              style: { ...styles.button(true), marginLeft: 'auto', height: 18, padding: '0 6px' },
+              style: { ...styles.button(true), marginLeft: 8, height: 18, padding: '0 6px' },
               onPointerDown: event => event.stopPropagation(),
               onClick: () => setCardCollapsed(value => !value),
               title: cardCollapsed ? '展开角色面板' : '收起角色面板',

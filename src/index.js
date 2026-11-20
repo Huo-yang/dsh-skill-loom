@@ -35,6 +35,7 @@ import { buildCatalog } from './catalog.js'
 import { ROUTE_PREFIX, createResource, toNodeHandler } from './http.js'
 import { createOverrideRegistry, resolveCreatedRole } from './spawn.js'
 import { RoleStore } from './store.js'
+import { createHistory } from './history.js'
 
 /** Cordis plugin name. */
 export const name = 'skill-loom'
@@ -71,6 +72,20 @@ const PARAMETERS = {
 export function apply(ctx, config = {}) {
   const rolesDir = config.rolesDir ?? defaultRolesDir()
   const store = new RoleStore(rolesDir)
+  const history = createHistory({ limit: 20 })
+  // Every save through this handle remembers the state it replaced. The raw store
+  // is kept for undo/redo itself, so restoring a snapshot does not record again.
+  const trackedStore = {
+    readAll: () => store.readAll(),
+    read: id => store.read(id),
+    remove: id => store.remove(id),
+    async save(role, options) {
+      const before = await store.read(role?.id)
+      const saved = await store.save(role, options)
+      history.record(role.id, before)
+      return saved
+    },
+  }
   const bindings = new BindingStore(bindingsFileFor(rolesDir))
   /** @type {Map<string, { dispose: () => void }>} */
   const generations = new Map()
@@ -172,6 +187,20 @@ export function apply(ctx, config = {}) {
     return generation
   }
 
+  /**
+   * Walk one step of a role's history and write the snapshot back as a new
+   * revision. The raw store is used so the restore itself is not recorded.
+   */
+  async function restoreRole(id, direction) {
+    const current = await store.read(id)
+    if (current === undefined) return undefined
+    const target = direction === 'undo'
+      ? history.takeUndo(id, current)
+      : history.takeRedo(id, current)
+    if (target === undefined) return undefined
+    return store.save(target, {})
+  }
+
   function disposeSession(sessionId) {
     generations.get(sessionId)?.dispose()
     generations.delete(sessionId)
@@ -185,7 +214,7 @@ export function apply(ctx, config = {}) {
   }
 
   const api = createRoleGraphApi({
-    store,
+    store: trackedStore,
     listSkills: async ({ agent, cwd }) => {
       // A write dispatched from the page carries no agent. Falling back to the
       // global layer alone would make preset-mounted skills look missing and
@@ -321,7 +350,7 @@ export function apply(ctx, config = {}) {
     path: ROUTE_PREFIX,
     // A handler, not a resource: resource routes answer GET/HEAD only.
     handler: toNodeHandler(createResource({
-      store,
+      store: trackedStore,
       mutate: async input => api.handle(input, { expectedRevision: input.expectedRevision, source: 'human' }),
       // Union of the global layer and every live agent scope: the editor must
       // not report a preset-mounted skill as missing just because no agent is
@@ -338,6 +367,12 @@ export function apply(ctx, config = {}) {
           return false
         }
       },
+      history: {
+        counts: id => history.counts(id),
+        undo: id => restoreRole(id, 'undo'),
+        redo: id => restoreRole(id, 'redo'),
+      },
+      onRemoved: id => history.forget(id),
       sessions: {
         list: async () => {
           const rows = []

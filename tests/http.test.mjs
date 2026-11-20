@@ -480,3 +480,31 @@ test('creating on a read-only host is refused', async () => {
   const handler = createResource({ store: storeOf(), catalog: catalogOf({}) })
   assert.equal((await handler(post('/skill-loom/roles', { name: 'x' }))).status, 405)
 })
+// --- history --------------------------------------------------------------
+
+const historyDep = () => ({
+  counts: () => ({ undo: 1, redo: 0 }),
+  undo: async id => ({ ...role(), id, name: 'restored', revision: 9 }),
+  redo: async () => undefined,
+})
+
+test('undo returns the restored role and the new counts', async () => {
+  const handler = createResource({ store: storeOf(role()), catalog: catalogOf({ a: 'x' }), history: historyDep() })
+  const response = await handler(post(`/skill-loom/roles/${UUID_A}/history`, { action: 'undo' }))
+  assert.equal(response.status, 200)
+  const body = await response.json()
+  assert.equal(body.role.name, 'restored')
+  assert.equal(body.history.undo, 1)
+})
+
+test('an unknown history direction is refused', async () => {
+  const handler = createResource({ store: storeOf(role()), catalog: catalogOf({ a: 'x' }), history: historyDep() })
+  const response = await handler(post(`/skill-loom/roles/${UUID_A}/history`, { action: 'sideways' }))
+  assert.equal(response.status, 400)
+})
+
+test('an empty redo stack is a conflict, not a crash', async () => {
+  const handler = createResource({ store: storeOf(role()), catalog: catalogOf({ a: 'x' }), history: historyDep() })
+  const response = await handler(post(`/skill-loom/roles/${UUID_A}/history`, { action: 'redo' }))
+  assert.equal(response.status, 409)
+})

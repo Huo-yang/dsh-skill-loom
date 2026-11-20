@@ -84,7 +84,7 @@ function summarize(role, repo, exists) {
  * @param {(input: object) => Promise<object>} [deps.mutate] - action dispatch (agent action layer).
  * @returns {(request: Request) => Promise<Response>} the resource.
  */
-export function createResource({ store, catalog, exists, mutate, sessions }) {
+export function createResource({ store, catalog, exists, mutate, sessions, history, onRemoved }) {
   async function readBody(request) {
     const declared = Number(request.headers.get('content-length') ?? '0')
     if (Number.isFinite(declared) && declared > MAX_BODY_BYTES) return { tooLarge: true }
@@ -236,6 +236,30 @@ export function createResource({ store, catalog, exists, mutate, sessions }) {
         return json({ error: 'method-not-allowed' }, 405)
       }
 
+      const historyMatch = /^roles\/([^/]+)\/history$/.exec(rest)
+      if (historyMatch !== null) {
+        const id = decodeURIComponent(historyMatch[1])
+        if (method !== 'POST') return json({ error: 'method-not-allowed' }, 405)
+        if (typeof history?.undo !== 'function') return json({ error: 'history-unavailable' }, 405)
+        if (!isLocalOrigin(request)) return json({ error: 'cross-origin' }, 403)
+        const body = await readBody(request)
+        if (body.tooLarge === true) return json({ error: 'body-too-large' }, 413)
+        if (body.invalid === true) return json({ error: 'invalid-json' }, 400)
+        const direction = body.value?.action
+        if (direction !== 'undo' && direction !== 'redo') return json({ error: 'invalid-action' }, 400)
+        const restored = direction === 'undo' ? await history.undo(id) : await history.redo(id)
+        if (restored === undefined) return json({ error: 'no-history' }, 409)
+        const log = await store.readAll()
+        const plan = planRole(restored, repo, { exists })
+        return json({
+          ok: true,
+          role: restored,
+          plan,
+          roles: log.map(item => summarize(item, repo, exists)),
+          history: history.counts(id),
+        })
+      }
+
       const deleteMatch = /^roles\/([^/]+)\/delete$/.exec(rest)
       if (deleteMatch !== null) {
         const id = decodeURIComponent(deleteMatch[1])
@@ -249,6 +273,7 @@ export function createResource({ store, catalog, exists, mutate, sessions }) {
           return json({ error: 'conflict', current: role }, 409)
         }
         await store.remove(id)
+        onRemoved?.(id)
         return json({ ok: true, result: { id } })
       }
 
@@ -269,6 +294,7 @@ export function createResource({ store, catalog, exists, mutate, sessions }) {
           role,
           plan: { ...plan, missing: explainMissing(role, repo, exists) },
           health: computeHealth(role, repo),
+          history: history?.counts?.(id) ?? { undo: 0, redo: 0 },
         })
       }
 
