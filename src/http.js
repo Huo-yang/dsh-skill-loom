@@ -160,7 +160,21 @@ export function createResource({ store, catalog, exists, mutate, sessions }) {
       const repo = await catalog()
 
       if (rest === '' || rest === 'roles') {
-        if (method === 'POST') return json({ error: 'method-not-allowed' }, 405)
+        if (method === 'POST') {
+          if (typeof mutate !== 'function') return json({ error: 'read-only' }, 405)
+          if (!isLocalOrigin(request)) return json({ error: 'cross-origin' }, 403)
+          const body = await readBody(request)
+          if (body.tooLarge === true) return json({ error: 'body-too-large' }, 413)
+          if (body.invalid === true) return json({ error: 'invalid-json' }, 400)
+          const name = typeof body.value?.name === 'string' ? body.value.name.trim() : ''
+          if (name === '') return json({ error: 'name-required' }, 400)
+          const outcome = await mutate({
+            action: 'create',
+            name,
+            add: Array.isArray(body.value.add) ? body.value.add : undefined,
+          })
+          return json({ ok: true, role: outcome.result.role, plan: outcome.result.plan })
+        }
         const roles = await store.readAll()
         return json({
           // Exposed so the page (and a smoke test) can tell a read-only host

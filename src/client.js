@@ -84,6 +84,14 @@ window.__ModuleLoader__.load({
         borderLeft: `3px solid ${COLORS.red}`, background: 'var(--dsw-alias-bg-layer-2, rgba(127,127,127,.1))',
       },
       empty: { fontSize: 12, opacity: 0.6, padding: '8px 2px' },
+      roleMenu: {
+        position: 'absolute', top: 'calc(100% + 4px)', left: 0, right: 0, zIndex: 20,
+        maxHeight: 240, overflowY: 'auto', padding: 4, borderRadius: 8,
+        background: 'var(--dsw-alias-bg-layer-2, #ffffff)',
+        border: '1px solid var(--dsw-alias-border-l2, rgba(127,127,127,.3))',
+        boxShadow: '0 8px 24px rgba(0,0,0,.16)',
+      },
+      roleRow: { display: 'flex', alignItems: 'center', gap: 6, padding: '4px 6px', borderRadius: 6, fontSize: 12 },
       toast: {
         position: 'absolute', top: 10, left: '50%', transform: 'translateX(-50%)',
         zIndex: 6, padding: '6px 12px', borderRadius: 8, fontSize: 12, maxWidth: '70%',
@@ -424,6 +432,9 @@ window.__ModuleLoader__.load({
       const [sessions, setSessions] = useState([])
       const [removalActive, setRemovalActive] = useState(false)
       const [notice, setNotice] = useState(undefined)
+      const [roleMenu, setRoleMenu] = useState(false)
+      const [creatingRole, setCreatingRole] = useState(undefined)
+      const [confirmRoleDel, setConfirmRoleDel] = useState(undefined)
       const zoneRef = useRef(undefined)
       const cardKey = compact ? 'skill-loom:card-compact' : 'skill-loom:card'
       const [cardPos, setCardPos] = useState(() => {
@@ -627,6 +638,61 @@ window.__ModuleLoader__.load({
         }
       }
 
+      const createRole = async rawName => {
+        const name = rawName.trim()
+        if (name === '') return
+        setPending(true)
+        setError(undefined)
+        try {
+          const response = await fetch(`${API}/roles`, {
+            method: 'POST',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({ name }),
+          })
+          const body = await response.json().catch(() => ({}))
+          if (!response.ok) throw new Error(body.message ?? body.code ?? body.error ?? HTTP )
+          setCreatingRole(undefined)
+          setRoleMenu(false)
+          await loadList()
+          if (body.role !== undefined) setSelectedRole(body.role.id)
+          setNotice('已创建角色 ' + name)
+        } catch (cause) {
+          setError(String(cause?.message ?? cause))
+        } finally {
+          setPending(false)
+        }
+      }
+
+      const deleteRoleById = async item => {
+        setPending(true)
+        setError(undefined)
+        try {
+          const response = await fetch(`${API}/roles/${encodeURIComponent(item.id)}/delete`, {
+            method: 'POST',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({ expectedRevision: item.revision }),
+          })
+          const body = await response.json().catch(() => ({}))
+          if (!response.ok) {
+            throw new Error(body.error === 'conflict'
+              ? '这个角色刚被别处修改过，请刷新后再操作'
+              : (body.message ?? body.error ?? HTTP ))
+          }
+          setConfirmRoleDel(undefined)
+          if (selectedRole === item.id) {
+            setSelectedRole(undefined)
+            setSelectedSkill(undefined)
+            setDetail({ status: 'idle' })
+          }
+          await loadList()
+          setNotice('已删除角色 ' + item.name)
+        } catch (cause) {
+          setError(String(cause?.message ?? cause))
+        } finally {
+          setPending(false)
+        }
+      }
+
       const deleteRole = async () => {
         const current = detail.role
         if (current === undefined) return
@@ -791,13 +857,83 @@ window.__ModuleLoader__.load({
             }, cardCollapsed ? '展开' : '收起'),
           ]),
           cardCollapsed ? null : h('div', { key: 'body' }, [
-            h('select', {
-              key: 'roles',
-              value: selectedRole ?? '',
-              onChange: event => { setSelectedRole(event.target.value); setSelectedSkill(undefined) },
-              style: { ...styles.select, width: '100%' },
-            }, list.roles.map(item => h('option', { key: item.id, value: item.id },
-              `${item.name}（${item.runtime.length} 可用 / ${item.red.length} 缺失）`))),
+            h('div', { key: 'roles', style: { position: 'relative' } }, [
+              h('button', {
+                key: 'toggle',
+                style: { ...styles.select, width: '100%', textAlign: 'left', cursor: 'pointer' },
+                onClick: () => setRoleMenu(open => !open),
+              }, (roleReady ? role.name : (list.roles.length === 0 ? '还没有角色' : '选择角色')) + '  ▾'),
+              roleMenu
+                ? h('div', { key: 'menu', style: styles.roleMenu }, [
+                  ...list.roles.map(item => h('div', {
+                    key: item.id,
+                    style: {
+                      ...styles.roleRow,
+                      background: item.id === selectedRole ? 'var(--dsw-alias-bg-multi-select, rgba(127,127,127,.16))' : 'transparent',
+                    },
+                  }, [
+                    h('span', {
+                      key: 'n',
+                      title: item.name + '（' + item.runtime.length + ' 可用 / ' + item.red.length + ' 缺失）',
+                      style: { flex: '1 1 auto', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', cursor: 'pointer' },
+                      onClick: () => {
+                        setSelectedRole(item.id)
+                        setSelectedSkill(undefined)
+                        setRoleMenu(false)
+                      },
+                    }, item.name),
+                    confirmRoleDel === item.id
+                      ? h('span', { key: 'c', style: { display: 'flex', gap: 4, flex: '0 0 auto' } }, [
+                        h('button', {
+                          key: 'y',
+                          style: { ...styles.button(!pending), marginLeft: 0, height: 18, padding: '0 6px' },
+                          disabled: pending,
+                          onClick: () => void deleteRoleById(item),
+                        }, '删除'),
+                        h('button', {
+                          key: 'n2',
+                          style: { ...styles.button(true), marginLeft: 0, height: 18, padding: '0 6px' },
+                          onClick: () => setConfirmRoleDel(undefined),
+                        }, '取消'),
+                      ])
+                      : h('button', {
+                        key: 'x',
+                        style: { ...styles.button(true), marginLeft: 'auto', height: 18, padding: '0 6px' },
+                        title: '删除这个角色',
+                        onClick: event => {
+                          event.stopPropagation()
+                          setConfirmRoleDel(item.id)
+                        },
+                      }, '×'),
+                  ])),
+                  creatingRole === undefined
+                    ? h('div', {
+                      key: 'new',
+                      style: { ...styles.roleRow, cursor: 'pointer', opacity: 0.85 },
+                      onClick: () => setCreatingRole(''),
+                    }, '＋ 新建角色')
+                    : h('div', { key: 'newform', style: { ...styles.roleRow, gap: 6 } }, [
+                      h('input', {
+                        key: 'i',
+                        value: creatingRole,
+                        placeholder: '角色名称',
+                        onChange: event => setCreatingRole(event.target.value),
+                        onKeyDown: event => {
+                          if (event.key === 'Enter') void createRole(creatingRole)
+                          if (event.key === 'Escape') setCreatingRole(undefined)
+                        },
+                        style: { ...styles.select, flex: '1 1 auto' },
+                      }),
+                      h('button', {
+                        key: 'ok',
+                        style: { ...styles.button(!pending && creatingRole.trim() !== ''), marginLeft: 0, height: 22, padding: '0 8px' },
+                        disabled: pending || creatingRole.trim() === '',
+                        onClick: () => void createRole(creatingRole),
+                      }, '创建'),
+                    ]),
+                ])
+                : null,
+            ]),
             roleReady
               ? h('div', { key: 'meta', style: { ...styles.meta, marginTop: 6 } },
                 `revision ${role.revision} · 闭包 ${plan.closure.length} · 约 ${plan.catalogChars} 字符`)

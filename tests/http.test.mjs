@@ -455,3 +455,28 @@ test('a cross-origin delete is refused', async () => {
   assert.equal(response.status, 403)
   assert.deepEqual(store.removed, [])
 })
+test('creating a role goes through mutate with a trimmed name', async () => {
+  const calls = []
+  const handler = createResource({
+    store: storeOf(),
+    catalog: catalogOf({}),
+    mutate: async input => {
+      calls.push(input)
+      return { result: { role: { id: UUID_A, name: input.name }, plan: {} } }
+    },
+  })
+  const response = await handler(post('/skill-loom/roles', { name: '  新角色  ' }))
+  assert.equal(response.status, 200)
+  assert.equal(calls[0].action, 'create')
+  assert.equal(calls[0].name, '新角色')
+})
+
+test('creating without a name is refused', async () => {
+  const handler = createResource({ store: storeOf(), catalog: catalogOf({}), mutate: async () => ({ result: {} }) })
+  assert.equal((await handler(post('/skill-loom/roles', { name: '   ' }))).status, 400)
+})
+
+test('creating on a read-only host is refused', async () => {
+  const handler = createResource({ store: storeOf(), catalog: catalogOf({}) })
+  assert.equal((await handler(post('/skill-loom/roles', { name: 'x' }))).status, 405)
+})
