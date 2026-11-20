@@ -121,11 +121,11 @@ window.__ModuleLoader__.load({
       return { width, height, positions, roleLevel }
     }
 
-    function Graph({ role, plan, selected, onSelect, onCreateEdge, onDropOnRole }) {
+    function Graph({ role, plan, selected, onSelect, onCreateEdge, onDropOnNode }) {
       const geom = useMemo(() => layout(role, plan), [role, plan])
       const svgRef = useRef(undefined)
       const [drag, setDrag] = useState(undefined)
-      const [dropActive, setDropActive] = useState(false)
+      const [dropTarget, setDropTarget] = useState(undefined)
 
       const red = new Set(plan.red ?? [])
       const gray = new Set((plan.gray ?? []).map(row => row.name))
@@ -231,28 +231,24 @@ window.__ModuleLoader__.load({
         if (position === undefined) return null
         const active = selected === node.name
         const stateColor = node.kind === 'role' ? COLORS.role : colorOf(node.name)
-        const isDropTarget = node.kind === 'role' && dropActive
+        const isDropTarget = dropTarget === node.name
         return h('g', {
           key: node.name,
           transform: `translate(${position.x - NODE_W / 2}, ${position.y - NODE_H})`,
           onPointerDown: beginLink(node.name),
           style: { cursor: 'grab' },
-          ...(node.kind === 'role'
-            ? {
-                onDragOver: event => {
-                  event.preventDefault()
-                  event.dataTransfer.dropEffect = 'link'
-                  setDropActive(true)
-                },
-                onDragLeave: () => setDropActive(false),
-                onDrop: event => {
-                  event.preventDefault()
-                  setDropActive(false)
-                  const payload = event.dataTransfer.getData('text/plain')
-                  if (payload !== '') onDropOnRole(payload)
-                },
-              }
-            : {}),
+          onDragOver: event => {
+            event.preventDefault()
+            event.dataTransfer.dropEffect = 'link'
+            setDropTarget(node.name)
+          },
+          onDragLeave: () => setDropTarget(current => (current === node.name ? undefined : current)),
+          onDrop: event => {
+            event.preventDefault()
+            setDropTarget(undefined)
+            const payload = event.dataTransfer.getData('text/plain')
+            if (payload !== '') onDropOnNode(payload, node.name)
+          },
         },
         h('rect', {
           width: NODE_W, height: NODE_H, rx: 6,
@@ -455,13 +451,21 @@ window.__ModuleLoader__.load({
         }
       }
 
-      const dropOnRole = payload => {
+      const dropOnNode = (payload, target) => {
         const separator = payload.indexOf(':')
         if (separator < 0) return
         const kind = payload.slice(0, separator)
         const value = payload.slice(separator + 1)
-        if (kind === 'session') void bindSession(value)
-        else if (kind === 'skill') void send('members', { action: 'add_members', add: [value] })
+        const onRole = target === '__role__'
+
+        if (kind === 'session') {
+          // A session belongs to a role, not to a skill.
+          if (onRole) void bindSession(value)
+          return
+        }
+        if (kind !== 'skill') return
+        if (onRole) void send('members', { action: 'add_members', add: [value] })
+        else if (value !== target) void send('edges', { action: 'link', from: value, to: target })
       }
 
       const roleReady = detail.status === 'ready'
@@ -505,7 +509,7 @@ window.__ModuleLoader__.load({
                     else if (to === '__role__') void send('members', { action: 'add_members', add: [from] })
                     else void send('edges', { action: 'link', from, to })
                   },
-                  onDropOnRole: dropOnRole,
+                  onDropOnNode: dropOnNode,
                 })
               : h('div', { key: 'empty', style: { ...styles.empty, padding: 24 } },
                 detail.status === 'error' ? detail.error
@@ -579,7 +583,7 @@ window.__ModuleLoader__.load({
                     event.dataTransfer.setData('text/plain', 'skill:' + skill.name)
                     event.dataTransfer.effectAllowed = 'link'
                   },
-                  title: '拖到上方角色节点可纳入该角色',
+                  title: '拖到角色节点纳入，拖到技能节点建立依赖',
                   style: { ...styles.item(selectedSkill === skill.name), cursor: 'grab' },
                   onClick: () => setSelectedSkill(skill.name),
                 }, [
@@ -634,7 +638,7 @@ window.__ModuleLoader__.load({
               onClick: () => void send('members', { action: 'remove_members', remove: [skillName] }),
             }, '从角色中移除'))
         : h('div', { key: 'member', style: styles.section },
-            h('div', { style: styles.empty }, '尚未纳入。把它拖到上方角色节点即可加入。')))
+            h('div', { style: styles.empty }, '尚未纳入。拖到角色节点即纳入，拖到另一个技能节点即建立依赖。')))
 
       const outgoingRows = outgoing.map((edge, index) => h('div', { key: `o${index}`, style: styles.line }, [
         h('span', { key: 'to', style: styles.mono }, edge.to),
