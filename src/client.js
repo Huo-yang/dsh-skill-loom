@@ -217,8 +217,16 @@ window.__ModuleLoader__.load({
         setDrag(undefined)
       }
 
+      // The role connects only to the first layer — the shallowest row of skills.
+      // Every drawn node is already a member, so drawing one line per member said
+      // nothing new and tangled the picture.
+      const levels = plan.levels ?? {}
+      const memberLevels = (plan.members ?? []).map(name => levels[name] ?? 0)
+      const firstLevel = memberLevels.length === 0 ? 0 : Math.min(...memberLevels)
       const edges = []
-      for (const name of plan.members ?? []) edges.push({ from: '__role__', to: name, include: true })
+      for (const name of plan.members ?? []) {
+        if ((levels[name] ?? 0) === firstLevel) edges.push({ from: '__role__', to: name, include: true })
+      }
       for (const edge of role.edges ?? []) edges.push({ from: edge.from, to: edge.to })
 
       // Curves read better than right angles here: an orthogonal route adds long
@@ -279,7 +287,7 @@ window.__ModuleLoader__.load({
         if (route === undefined) return null
         const dragging = edgeDrag !== undefined && edgeDrag.index === index && edgeDrag.moved
         const related = hovered === undefined || edge.from === hovered || edge.to === hovered
-        const baseOpacity = edge.include ? 0.22 : 0.5
+        const baseOpacity = 0.5
         return h('g', { key: `e${index}` },
           h('path', {
             d: dragging ? `M ${route.from.x} ${route.from.y} L ${edgeDrag.x} ${edgeDrag.y}` : route.d,
@@ -287,7 +295,7 @@ window.__ModuleLoader__.load({
             stroke: dragging ? COLORS.red : 'currentColor',
             strokeOpacity: dragging ? 0.9 : related ? Math.min(1, baseOpacity + 0.45) : 0.07,
             strokeWidth: dragging ? 1.8 : related && !edge.include ? 2 : 1.4,
-            strokeDasharray: edge.include || dragging ? '4 3' : undefined,
+            strokeDasharray: dragging ? '4 3' : undefined,
           }),
           // Only a real dependency can be detached; an include line is membership.
           edge.include || dragging || !related
