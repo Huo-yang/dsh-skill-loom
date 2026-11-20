@@ -382,9 +382,10 @@ window.__ModuleLoader__.load({
       const [sessions, setSessions] = useState([])
       const [removalActive, setRemovalActive] = useState(false)
       const zoneRef = useRef(undefined)
+      const cardKey = compact ? 'skill-loom:card-compact' : 'skill-loom:card'
       const [cardPos, setCardPos] = useState(() => {
         try {
-          const saved = JSON.parse(globalThis.localStorage?.getItem('skill-loom:card') ?? 'null')
+          const saved = JSON.parse(globalThis.localStorage?.getItem(cardKey) ?? 'null')
           if (saved !== null && typeof saved.x === 'number' && typeof saved.y === 'number') return saved
         } catch {
           // A blocked or corrupt preference simply keeps the default position.
@@ -410,7 +411,7 @@ window.__ModuleLoader__.load({
         setDragging(false)
         event.currentTarget.releasePointerCapture?.(event.pointerId)
         try {
-          globalThis.localStorage?.setItem('skill-loom:card', JSON.stringify(cardPos))
+          globalThis.localStorage?.setItem(cardKey, JSON.stringify(cardPos))
         } catch {
           // Persisting the position is a convenience, never a requirement.
         }
@@ -642,10 +643,10 @@ window.__ModuleLoader__.load({
       // instead of floating two absolute panels.
       const stageStyle = { display: 'flex', flexDirection: 'column', height: '100%', minHeight: 0, position: 'relative', font: 'inherit', color: 'inherit', overflow: 'hidden' }
       const canvasStyle = compact
-        ? { ...styles.canvasFill, position: 'relative', inset: 'auto', flex: '1 1 52%', minHeight: 160, paddingRight: 0 }
+        ? { ...styles.canvasFill, position: 'relative', inset: 'auto', flex: '1 1 auto', minHeight: 160, paddingRight: 0 }
         : { ...styles.canvasFill, position: 'relative', inset: 'auto', flex: '1 1 auto', minHeight: 200, paddingRight: 0 }
       const cardStyle = compact
-        ? { ...styles.roleCard, position: 'relative', top: 'auto', left: 'auto', width: 'auto', borderRadius: 0, border: 'none', borderBottom: '1px solid var(--dsw-alias-border-l2, rgba(127,127,127,.28))', boxShadow: 'none', zIndex: 1, order: -1 }
+        ? { ...styles.roleCard, left: cardPos.x, top: cardPos.y, zIndex: 2 }
         : { ...styles.roleCard, left: cardPos.x, top: cardPos.y }
       const panelStyle = compact
         ? { ...styles.panel, position: 'relative', top: 'auto', right: 'auto', bottom: 'auto', width: 'auto', flex: '1 1 48%', minHeight: 0, borderRadius: 0, border: 'none', boxShadow: 'none', zIndex: 1 }
