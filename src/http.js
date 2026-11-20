@@ -145,6 +145,9 @@ export function createResource({ store, catalog, exists, mutate }) {
         if (method === 'POST') return json({ error: 'method-not-allowed' }, 405)
         const roles = await store.readAll()
         return json({
+          // Exposed so the page (and a smoke test) can tell a read-only host
+          // from one that accepts writes.
+          writable: typeof mutate === 'function',
           roles: roles.map(role => summarize(role, repo, exists)),
           skills: [...repo.values()].map(skill => ({
             name: skill.name,
@@ -179,5 +182,52 @@ export function createResource({ store, catalog, exists, mutate }) {
     } catch (error) {
       return json({ error: 'internal', message: String(error?.message ?? error) }, 500)
     }
+  }
+}
+
+/**
+ * Adapt a Fetch-style resource to the host's Node-style route handler.
+ *
+ * `WebResourceRoute` answers GET and HEAD only — the server itself returns 405
+ * for anything else — so a route that must accept POST registers `handler`
+ * instead and reads the body from the request stream.
+ * @param {(request: Request) => Promise<Response>} resource - the fetch-style resource.
+ * @returns {(req: import('node:http').IncomingMessage, res: import('node:http').ServerResponse) => Promise<void>} handler.
+ */
+export function toNodeHandler(resource) {
+  return async function handler(req, res) {
+    const method = req.method ?? 'GET'
+    const headers = new Headers()
+    for (const [key, value] of Object.entries(req.headers)) {
+      if (value === undefined) continue
+      headers.set(key, Array.isArray(value) ? value.join(', ') : value)
+    }
+
+    let body
+    if (method !== 'GET' && method !== 'HEAD') {
+      const chunks = []
+      let total = 0
+      for await (const chunk of req) {
+        total += chunk.length
+        if (total > MAX_BODY_BYTES) {
+          res.statusCode = 413
+          res.setHeader('content-type', 'application/json; charset=utf-8')
+          res.end(JSON.stringify({ error: 'body-too-large' }))
+          return
+        }
+        chunks.push(chunk)
+      }
+      body = Buffer.concat(chunks)
+    }
+
+    const url = new URL(req.url ?? '/', 'http://127.0.0.1')
+    const response = await resource(new Request(url, {
+      method,
+      headers,
+      ...(body === undefined ? {} : { body }),
+    }))
+    res.statusCode = response.status
+    response.headers.forEach((value, key) => res.setHeader(key, value))
+    res.end(Buffer.from(await response.arrayBuffer()))
   }
 }

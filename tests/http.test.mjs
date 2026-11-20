@@ -1,7 +1,9 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 
-import { createResource } from '../src/http.js'
+import { Readable } from 'node:stream'
+
+import { createResource, toNodeHandler } from '../src/http.js'
 
 const UUID_A = '3f2a6c1e-9b4d-4e21-8a77-1c5b0d9e4f60'
 const UUID_B = '9b4d4e21-8a77-4e21-9c33-2d7f6a1b8e02'
@@ -225,4 +227,77 @@ test('a host without a mutate hook is read-only', async () => {
 test('the collection route refuses POST', async () => {
   const response = await resource()(post('/skill-loom/roles', { action: 'add_members' }))
   assert.equal(response.status, 405)
+})
+// --- node adapter ---------------------------------------------------------
+
+const fakeRes = () => {
+  const res = {
+    statusCode: 0,
+    headers: {},
+    body: undefined,
+    setHeader(key, value) {
+      this.headers[key] = value
+    },
+    end(buffer) {
+      this.body = buffer
+    },
+  }
+  return res
+}
+
+const fakeReq = ({ method = 'GET', url = '/skill-loom/roles', body, headers = {} } = {}) => {
+  const req = Readable.from(body === undefined ? [] : [Buffer.from(body)])
+  req.method = method
+  req.url = url
+  req.headers = { 'content-type': 'application/json', ...headers }
+  return req
+}
+
+test('the adapter forwards a POST body into the resource', async () => {
+  const calls = []
+  const handler = toNodeHandler(createResource({
+    store: storeOf(role()),
+    catalog: catalogOf({}),
+    mutate: async input => {
+      calls.push(input)
+      return { ok: true }
+    },
+  }))
+  const res = fakeRes()
+  await handler(fakeReq({
+    method: 'POST',
+    url: `/skill-loom/roles/${UUID_A}/members`,
+    body: JSON.stringify({ action: 'add_members', add: ['a'], expectedRevision: 1 }),
+  }), res)
+  assert.equal(res.statusCode, 200)
+  assert.equal(calls.length, 1)
+  assert.deepEqual(calls[0].add, ['a'])
+  assert.equal(JSON.parse(res.body.toString()).ok, true)
+})
+
+test('the adapter serves GET without a body', async () => {
+  const handler = toNodeHandler(createResource({
+    store: storeOf(role()),
+    catalog: catalogOf({ a: { name: 'a', description: 'A' } }),
+    exists: () => true,
+  }))
+  const res = fakeRes()
+  await handler(fakeReq(), res)
+  assert.equal(res.statusCode, 200)
+  assert.equal(JSON.parse(res.body.toString()).writable, false)
+})
+
+test('the adapter refuses an oversized body before the resource runs', async () => {
+  const handler = toNodeHandler(createResource({
+    store: storeOf(role()),
+    catalog: catalogOf({}),
+    mutate: async () => ({ ok: true }),
+  }))
+  const res = fakeRes()
+  await handler(fakeReq({
+    method: 'POST',
+    url: `/skill-loom/roles/${UUID_A}/members`,
+    body: 'x'.repeat(70000),
+  }), res)
+  assert.equal(res.statusCode, 413)
 })

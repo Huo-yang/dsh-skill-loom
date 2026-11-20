@@ -31,7 +31,7 @@ import { BindingStore, bindingsFileFor } from './bindings.js'
 import { restoreBoundRoles, sessionIdOf } from './lifecycle.js'
 import { installRole } from './runtime.js'
 import { createDebouncedTask } from './scheduler.js'
-import { ROUTE_PREFIX, createResource } from './http.js'
+import { ROUTE_PREFIX, createResource, toNodeHandler } from './http.js'
 import { createOverrideRegistry, resolveCreatedRole } from './spawn.js'
 import { RoleStore } from './store.js'
 
@@ -290,7 +290,8 @@ export function apply(ctx, config = {}) {
   ctx.inject(['webServer'], webCtx => webCtx.effect(() => webCtx.webServer.register({
     kind: 'prefix',
     path: ROUTE_PREFIX,
-    resource: createResource({
+    // A handler, not a resource: resource routes answer GET/HEAD only.
+    handler: toNodeHandler(createResource({
       store,
       mutate: async input => api.handle(input, { expectedRevision: input.expectedRevision }),
       // Union of the global layer and every live agent scope: the editor must
@@ -316,7 +317,7 @@ export function apply(ctx, config = {}) {
           return false
         }
       },
-    }),
+    })),
   }), 'skill-loom: http routes'))
   ctx.on('agent/created', async ({ agent }) => {
     if (!active) return
