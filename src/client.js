@@ -99,8 +99,8 @@ window.__ModuleLoader__.load({
         border: '1px solid var(--dsw-alias-border-l2, rgba(127,127,127,.3))',
         boxShadow: '0 4px 16px rgba(0,0,0,.12)', pointerEvents: 'none', color: 'inherit',
       },
-      historyBar: { position: 'absolute', top: 12, zIndex: 3, display: 'flex', alignItems: 'center' },
       cornerBar: { position: 'absolute', top: 12, left: 12, zIndex: 3, display: 'flex', alignItems: 'center' },
+      historyBar: { position: 'absolute', top: 12, right: 12, zIndex: 3, display: 'flex', alignItems: 'center' },
       trashZone: {
         position: 'absolute', bottom: 18, left: '50%', transform: 'translateX(-50%)',
         padding: '10px 22px', borderRadius: 10, border: '2px dashed ' + COLORS.red,
@@ -945,6 +945,26 @@ window.__ModuleLoader__.load({
           // the stage also holds the skill panel, and a stage-wide zone landed in
           // the middle of the sidebar instead of at the bottom of the graph.
           removalActive ? h('div', { ref: zoneRef, style: styles.trashZone }, '拖到此处移除') : null,
+          // Inside the canvas, so "top-right" means the drawing area even now that
+          // the page is split into a graph pane and a list pane.
+          roleReady
+            ? h('div', { style: styles.historyBar }, [
+              h('button', {
+                key: 'undo',
+                style: { ...styles.button(!pending && (detail.history?.undo ?? 0) > 0), marginLeft: 0, height: 24, padding: '0 8px' },
+                disabled: pending || (detail.history?.undo ?? 0) === 0,
+                onClick: () => void stepHistory('undo'),
+                title: '撤销上一步（Ctrl+Z）',
+              }, '↶ 撤销'),
+              h('button', {
+                key: 'redo',
+                style: { ...styles.button(!pending && (detail.history?.redo ?? 0) > 0), marginLeft: 6, height: 24, padding: '0 8px' },
+                disabled: pending || (detail.history?.redo ?? 0) === 0,
+                onClick: () => void stepHistory('redo'),
+                title: '重做（Ctrl+Shift+Z）',
+              }, '↷ 重做'),
+            ])
+            : null,
         ]),
 
         h('style', { key: 'loom-css' }, MENU_CSS),
@@ -953,26 +973,6 @@ window.__ModuleLoader__.load({
           : notice !== undefined
             ? h('div', { style: styles.toast }, notice)
             : null,
-        // History controls sit on the drawing area itself: they act on the graph,
-        // not on the role's identity, so they do not belong in the role card.
-        roleReady
-          ? h('div', { style: { ...styles.historyBar, right: 12 } }, [
-            h('button', {
-              key: 'undo',
-              style: { ...styles.button(!pending && (detail.history?.undo ?? 0) > 0), marginLeft: 0, height: 24, padding: '0 8px' },
-              disabled: pending || (detail.history?.undo ?? 0) === 0,
-              onClick: () => void stepHistory('undo'),
-              title: '撤销上一步（Ctrl+Z）',
-            }, '↶ 撤销'),
-            h('button', {
-              key: 'redo',
-              style: { ...styles.button(!pending && (detail.history?.redo ?? 0) > 0), marginLeft: 6, height: 24, padding: '0 8px' },
-              disabled: pending || (detail.history?.redo ?? 0) === 0,
-              onClick: () => void stepHistory('redo'),
-              title: '重做（Ctrl+Shift+Z）',
-            }, '↷ 重做'),
-          ])
-          : null,
         h('div', { style: styles.cornerBar }, [
             h('div', { key: 'roles', ref: roleMenuRef, style: { position: 'relative' } }, [
               h('button', {
