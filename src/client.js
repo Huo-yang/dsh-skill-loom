@@ -18,6 +18,9 @@ window.__ModuleLoader__.load({
       canvasFill: {
         position: 'absolute', inset: 0, overflow: 'hidden',
         background: 'linear-gradient(rgba(0,0,0,.025), rgba(0,0,0,.025)), var(--dsw-alias-bg-base, #ffffff)',
+        // Without this a right-drag starts a text selection and the highlight
+        // fights the panning gesture.
+        userSelect: 'none', WebkitUserSelect: 'none',
       },
       roleCard: {
         position: 'absolute', top: 12, left: 12, width: 240, padding: '10px 12px',
@@ -247,7 +250,9 @@ window.__ModuleLoader__.load({
       const [pan, setPan] = useState({ x: 0, y: 0 })
 
       const startPan = event => {
-        if (event.button !== 2) return
+        // Right drag pans; middle drag is the fallback for browsers that claim
+        // the right button for their own menu.
+        if (event.button !== 2 && event.button !== 1) return
         const element = canvasRef.current
         if (element === undefined) return
         event.preventDefault()
@@ -354,6 +359,8 @@ window.__ModuleLoader__.load({
           onPointerUp: endPan,
           onPointerCancel: endPan,
           onContextMenu: event => event.preventDefault(),
+          onSelectStart: event => event.preventDefault(),
+          onDragStart: event => event.preventDefault(),
         },
           h('div', {
             style: {
