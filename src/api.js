@@ -116,27 +116,35 @@ export function createRoleGraphApi(deps) {
 
   /** Validate, auto-fill, anchor, then persist. */
   async function persist(role, repo, options = {}) {
-    // The caller states who is writing: an agent must justify every edge, a
-    // human editing through the page does not (D11).
-    const issues = validateRole(role, repo, { source: options.source ?? 'agent', exists })
+    // `requires` is transitive, so an edge implied by a longer path adds a line
+    // and nothing else. Drop those on every save instead of asking the user to
+    // tidy them: orchestration keeps this invariant, the canvas never sees it.
+    const incoming = (role?.edges ?? []).length
+    const trimmed = { ...role, edges: pruneEdges(role?.edges) }
+    const pruned = incoming - trimmed.edges.length
+
+    // The caller states who is writing: an agent must justify every edge it
+    // creates, a human editing through the page does not (D11).
+    const issues = validateRole(trimmed, repo, { source: options.source ?? 'agent', exists })
     const errors = issues.filter(issue => issue.severity === 'error')
     if (errors.length > 0) {
       throw new RoleGraphError('VALIDATION_FAILED', 'the role was not saved because it is invalid', { issues: errors })
     }
-    const others = (await store.readAll()).filter(existing => existing.id !== role.id)
-    if (isRoleNameTaken(others, role.name)) {
-      throw new RoleGraphError('DUPLICATE_NAME', `another role is already named "${role.name}"`)
+    const others = (await store.readAll()).filter(existing => existing.id !== trimmed.id)
+    if (isRoleNameTaken(others, trimmed.name)) {
+      throw new RoleGraphError('DUPLICATE_NAME', `another role is already named "${trimmed.name}"`)
     }
     const filled = {
-      ...role,
-      members: [...resolvedMembers(role)],
-      anchors: captureAnchors(role, repo),
+      ...trimmed,
+      members: [...resolvedMembers(trimmed)],
+      anchors: captureAnchors(trimmed, repo),
     }
     const saved = await store.save(filled, { expectedRevision: options.expectedRevision })
     return {
       role: saved,
       plan: planRole(saved, repo, { exists }),
       issues: issues.filter(issue => issue.severity !== 'info'),
+      pruned,
     }
   }
 
@@ -263,8 +271,7 @@ export function createRoleGraphApi(deps) {
         break
       }
       case 'prune_edges': {
-        const redundant = new Set(findRedundantEdges(next).map(edge => edge.from + '\u0000' + edge.to))
-        next.edges = (next.edges ?? []).filter(edge => !redundant.has(edge.from + '\u0000' + edge.to))
+        next.edges = pruneEdges(next.edges)
         break
       }
       case 'unlink': {
@@ -299,4 +306,15 @@ export function createRoleGraphApi(deps) {
   }
 
   return { handle, resolve: load }
+}
+/**
+ * Drop edges whose target is already reachable through another edge.
+ * @param {Array<object>} edges - declared edges.
+ * @returns {Array<object>} the minimal equivalent edge set.
+ */
+function pruneEdges(edges) {
+  const list = Array.isArray(edges) ? edges : []
+  const redundant = new Set(findRedundantEdges({ edges: list }).map(edge => edge.from + '\u0000' + edge.to))
+  if (redundant.size === 0) return list
+  return list.filter(edge => !redundant.has(edge.from + '\u0000' + edge.to))
 }
