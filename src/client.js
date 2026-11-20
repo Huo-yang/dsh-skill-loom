@@ -100,6 +100,7 @@ window.__ModuleLoader__.load({
         boxShadow: '0 4px 16px rgba(0,0,0,.12)', pointerEvents: 'none', color: 'inherit',
       },
       historyBar: { position: 'absolute', top: 12, zIndex: 3, display: 'flex', alignItems: 'center' },
+      cornerBar: { position: 'absolute', top: 12, left: 12, zIndex: 3, display: 'flex', alignItems: 'center' },
       trashZone: {
         position: 'absolute', bottom: 18, left: '50%', transform: 'translateX(-50%)',
         padding: '10px 22px', borderRadius: 10, border: '2px dashed ' + COLORS.red,
@@ -488,7 +489,6 @@ window.__ModuleLoader__.load({
       const [pending, setPending] = useState(false)
       const [error, setError] = useState(undefined)
       const [filter, setFilter] = useState('')
-      const [cardCollapsed, setCardCollapsed] = useState(false)
       const [removalActive, setRemovalActive] = useState(false)
       const [notice, setNotice] = useState(undefined)
       const [roleMenu, setRoleMenu] = useState(false)
@@ -507,40 +507,6 @@ window.__ModuleLoader__.load({
       const [apps, setApps] = useState(undefined)
       const [appsLoading, setAppsLoading] = useState(false)
       const zoneRef = useRef(undefined)
-      const cardKey = compact ? 'skill-loom:card-compact' : 'skill-loom:card'
-      const [cardPos, setCardPos] = useState(() => {
-        try {
-          const saved = JSON.parse(globalThis.localStorage?.getItem(cardKey) ?? 'null')
-          if (saved !== null && typeof saved.x === 'number' && typeof saved.y === 'number') return saved
-        } catch {
-          // A blocked or corrupt preference simply keeps the default position.
-        }
-        return { x: 12, y: 12 }
-      })
-      const dragRef = useRef(undefined)
-      const [dragging, setDragging] = useState(false)
-
-      const startDrag = event => {
-        dragRef.current = { dx: event.clientX - cardPos.x, dy: event.clientY - cardPos.y }
-        setDragging(true)
-        event.currentTarget.setPointerCapture?.(event.pointerId)
-      }
-      const moveDrag = event => {
-        const drag = dragRef.current
-        if (drag === undefined) return
-        setCardPos({ x: Math.max(0, event.clientX - drag.dx), y: Math.max(0, event.clientY - drag.dy) })
-      }
-      const endDrag = event => {
-        if (dragRef.current === undefined) return
-        dragRef.current = undefined
-        setDragging(false)
-        event.currentTarget.releasePointerCapture?.(event.pointerId)
-        try {
-          globalThis.localStorage?.setItem(cardKey, JSON.stringify(cardPos))
-        } catch {
-          // Persisting the position is a convenience, never a requirement.
-        }
-      }
 
       // Right-drag pans the canvas. Scroll offsets are used rather than a CSS
       // transform so the browser keeps its scrollbars and wheel scrolling intact.
@@ -886,9 +852,6 @@ window.__ModuleLoader__.load({
       const canvasStyle = compact
         ? { ...styles.canvasFill, position: 'relative', inset: 'auto', flex: '1 1 auto', minHeight: 160, paddingRight: 0 }
         : { ...styles.canvasFill, position: 'relative', inset: 'auto', flex: '1 1 auto', minHeight: 200, paddingRight: 356 }
-      const cardStyle = compact
-        ? { ...styles.roleCard, left: cardPos.x, top: cardPos.y, zIndex: 2 }
-        : { ...styles.roleCard, left: cardPos.x, top: cardPos.y }
       const panelStyle = compact
         ? { ...styles.panel, position: 'relative', top: 'auto', right: 'auto', bottom: 'auto', width: 'auto', flex: '1 1 48%', minHeight: 0, borderRadius: 0, border: 'none', boxShadow: 'none', zIndex: 1 }
         : { ...styles.panel, zIndex: 2 }
@@ -979,35 +942,34 @@ window.__ModuleLoader__.load({
           ])
           : null,
         removalActive ? h('div', { ref: zoneRef, style: styles.trashZone }, '拖到此处移除') : null,
-        h('div', { style: cardStyle }, [
-          h('div', {
-            key: 'head',
-            style: { ...styles.cardHead, cursor: dragging ? 'grabbing' : 'grab' },
-            onPointerDown: startDrag,
-            onPointerMove: moveDrag,
-            onPointerUp: endDrag,
-            onPointerCancel: endDrag,
-            title: '拖动可移动面板',
-          }, [
-            h('span', { key: 'g', style: { opacity: 0.5 } }, '⠿'),
-            h('span', { key: 't' }, '技能编排'),
-            h('button', {
-              key: 'toggle',
-              style: { ...styles.button(true), marginLeft: 'auto', height: 18, padding: '0 6px' },
-              onPointerDown: event => event.stopPropagation(),
-              onClick: () => setCardCollapsed(value => !value),
-              title: cardCollapsed ? '展开角色面板' : '收起角色面板',
-            }, cardCollapsed ? '展开' : '收起'),
-          ]),
-          cardCollapsed ? null : h('div', { key: 'body' }, [
+        h('div', { style: styles.cornerBar }, [
             h('div', { key: 'roles', ref: roleMenuRef, style: { position: 'relative' } }, [
               h('button', {
                 key: 'toggle',
-                style: { ...styles.select, width: '100%', textAlign: 'left', cursor: 'pointer' },
+                type: 'button',
+                className: 'loom-option',
                 onClick: () => setRoleMenu(open => !open),
-              }, (roleReady ? role.name : (list.roles.length === 0 ? '还没有角色' : '选择角色')) + '  ▾'),
+              }, [
+                h('svg', {
+                  key: 'icon',
+                  viewBox: '0 0 16 16',
+                  width: 16,
+                  height: 16,
+                  className: 'loom-option-icon',
+                  'aria-hidden': true,
+                }, h('path', { d: 'M8 2a3 3 0 1 1 0 6 3 3 0 0 1 0-6Zm-6 12c0-2.5 2.7-4 6-4s6 1.5 6 4v.5H2V14Z', fill: 'currentColor' })),
+                h('span', { key: 'label', className: 'loom-option-label' }, roleReady ? role.name : (list.roles.length === 0 ? '还没有角色' : '选择角色')),
+                h('svg', {
+                  key: 'chevron',
+                  viewBox: '0 0 16 16',
+                  width: 12,
+                  height: 12,
+                  className: 'loom-option-icon',
+                  'aria-hidden': true,
+                }, h('path', { d: 'M4 6l4 4 4-4', fill: 'none', stroke: 'currentColor', strokeWidth: 1.5, strokeLinecap: 'round' })),
+              ]),
               roleMenu
-                ? h('div', { key: 'menu', style: styles.roleMenu }, [
+                ? h('div', { key: 'menu', className: 'loom-menu loom-menu--float', style: { left: 0, right: 'auto' } }, [
                   ...list.roles.map(item => h('div', {
                     key: item.id,
                     style: {
@@ -1077,11 +1039,6 @@ window.__ModuleLoader__.load({
                 ])
                 : null,
             ]),
-            roleReady
-              ? h('div', { key: 'meta', style: { ...styles.meta, marginTop: 6 } },
-                `revision ${role.revision} · 闭包 ${plan.closure.length} · 约 ${plan.catalogChars} 字符`)
-              : null,
-          ]),
         ]),
 
         roleReady
