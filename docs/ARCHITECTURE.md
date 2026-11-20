@@ -1,6 +1,6 @@
 # dsh-skill-loom 架构设计
 
-> 状态：**v2.7（M1 + M2 完成并真机验证，含 `role_spawn`；122 条测试）**
+> 状态：**v2.8（M1 + M2 完成并真机验证；M3 只读页已实现，HTTP 已验证，页面待浏览器确认；131 条测试）**
 > 设计核对版本：DSH Web `0.2.2-rc.5`
 > 一句话：**一个角色 = 一张图 = 一个文件**；技能是节点，连线是依赖；agent 与人共用同一张图的读写面。
 
@@ -724,3 +724,34 @@ client 半需要读图、读仓库、写图，但正文未定义接口。补齐�
 **真机验证**：`role_spawn` 派生 `agent-1`，子会话 `9bd96f9c-…` 的绑定出现在 `roles/bindings.json`，子代理回 `OK`。父会话自身未被绑定。
 
 **未真机验证**：`inherit` 分支（需先给父会话绑定，再用原生 `subagent` 派生）。该分支由 `resolveCreatedRole` 的 8 条单测覆盖。
+---
+
+## 15. M3：只读页面
+
+### 15.1 入口位置
+
+- `sidebar.panellist`，`id = skill-loom`，`order = 5`。
+- 既有 order：插件 `0`、自动化任务 `10`；`5` 正好落在两者之间，也就是"自动化任务与更多之间"。
+- 同一 `id` 同时作为 `main` 的 key —— 侧栏条目 id 就是中央面板的键，两者必须一致。
+
+### 15.2 只读 HTTP 接口
+
+| 方法 | 路径 | 返回 |
+|---|---|---|
+| GET | `/plugins/skill-loom/roles` | 角色摘要数组 + 全量技能目录 |
+| GET | `/plugins/skill-loom/roles/<uuid>` | 单个角色 + `plan` + `health` + `missing` 解释 |
+
+`WebResourceRoute`（`kind: 'prefix'`，Fetch 风格 `resource`），只接受 GET/HEAD，其余 405；前缀之外 404；异常转 500 而不是未处理拒绝。
+
+**视角**：页面是 root 作用域，没有 session 绑定，因此目录取"全局层 ∪ 所有活跃 agent 的作用域"。这是编排视角应有的超集——不能因为某个 HTTP 请求没有 agent，就把预设挂载的技能报成缺失。
+
+实测返回 7 个技能，其中 `dsh-doc` 的 `source` 是 `custom`，证明并集在 HTTP 侧同样生效。
+
+### 15.3 客户端
+
+- 无构建步骤：`client.js` 直接是 `window.__ModuleLoader__.load({ id, factory })` 格式。
+- `dsh.client = { platform: 'web', immediately: true, inject: ['@deepseek-ai/dsh-client-ui-layout'] }`。
+- 页面：左列角色、右侧详情（技能三态点 + 锚点路径、依赖边与 `why`、校验清单）。
+- 文字暂为中文硬编码，本地化留到 M3 收尾。
+
+**验证状态**：HTTP 已用本机请求验证；页面渲染需要浏览器 token，当前会话无法代验，待用户刷新确认。
