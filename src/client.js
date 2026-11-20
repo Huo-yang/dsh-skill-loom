@@ -121,7 +121,7 @@ window.__ModuleLoader__.load({
       return { width, height, positions, roleLevel }
     }
 
-    function Graph({ role, plan, selected, onSelect, onCreateEdge, onBindSession }) {
+    function Graph({ role, plan, selected, onSelect, onCreateEdge, onDropOnRole }) {
       const geom = useMemo(() => layout(role, plan), [role, plan])
       const svgRef = useRef(undefined)
       const [drag, setDrag] = useState(undefined)
@@ -248,8 +248,8 @@ window.__ModuleLoader__.load({
                 onDrop: event => {
                   event.preventDefault()
                   setDropActive(false)
-                  const sessionId = event.dataTransfer.getData('text/plain')
-                  if (sessionId !== '') onBindSession(sessionId)
+                  const payload = event.dataTransfer.getData('text/plain')
+                  if (payload !== '') onDropOnRole(payload)
                 },
               }
             : {}),
@@ -455,6 +455,15 @@ window.__ModuleLoader__.load({
         }
       }
 
+      const dropOnRole = payload => {
+        const separator = payload.indexOf(':')
+        if (separator < 0) return
+        const kind = payload.slice(0, separator)
+        const value = payload.slice(separator + 1)
+        if (kind === 'session') void bindSession(value)
+        else if (kind === 'skill') void send('members', { action: 'add_members', add: [value] })
+      }
+
       const roleReady = detail.status === 'ready'
       const role = roleReady ? detail.role : undefined
       const plan = roleReady ? detail.plan : undefined
@@ -496,7 +505,7 @@ window.__ModuleLoader__.load({
                     else if (to === '__role__') void send('members', { action: 'add_members', add: [from] })
                     else void send('edges', { action: 'link', from, to })
                   },
-                  onBindSession: sessionId => void bindSession(sessionId),
+                  onDropOnRole: dropOnRole,
                 })
               : h('div', { key: 'empty', style: { ...styles.empty, padding: 24 } },
                 detail.status === 'error' ? detail.error
@@ -534,7 +543,7 @@ window.__ModuleLoader__.load({
             key: session.sessionId,
             draggable: true,
             onDragStart: event => {
-              event.dataTransfer.setData('text/plain', session.sessionId)
+              event.dataTransfer.setData('text/plain', `session:${session.sessionId}`)
               event.dataTransfer.effectAllowed = 'link'
             },
             style: { ...styles.item(false), cursor: 'grab' },
@@ -565,7 +574,13 @@ window.__ModuleLoader__.load({
                     : member ? COLORS.runtime : COLORS.member
                 return h('div', {
                   key: skill.name,
-                  style: styles.item(selectedSkill === skill.name),
+                  draggable: true,
+                  onDragStart: event => {
+                    event.dataTransfer.setData('text/plain', 'skill:' + skill.name)
+                    event.dataTransfer.effectAllowed = 'link'
+                  },
+                  title: '拖到上方角色节点可纳入该角色',
+                  style: { ...styles.item(selectedSkill === skill.name), cursor: 'grab' },
                   onClick: () => setSelectedSkill(skill.name),
                 }, [
                   h('div', { key: 'n', style: styles.itemName },
@@ -611,14 +626,15 @@ window.__ModuleLoader__.load({
       if (info?.description) children.push(h('div', { key: 'desc', style: { ...styles.muted, marginTop: 6 } }, info.description))
       if (error !== undefined) children.push(h('div', { key: 'err', style: styles.error }, error))
 
-      children.push(h('div', { key: 'member', style: styles.section },
-        h('button', {
-          style: { ...styles.button(!pending), marginLeft: 0 },
-          disabled: pending,
-          onClick: () => void send('members', member
-            ? { action: 'remove_members', remove: [skillName] }
-            : { action: 'add_members', add: [skillName] }),
-        }, member ? '从角色中移除' : '纳入该角色')))
+      children.push(member
+        ? h('div', { key: 'member', style: styles.section },
+            h('button', {
+              style: { ...styles.button(!pending), marginLeft: 0 },
+              disabled: pending,
+              onClick: () => void send('members', { action: 'remove_members', remove: [skillName] }),
+            }, '从角色中移除'))
+        : h('div', { key: 'member', style: styles.section },
+            h('div', { style: styles.empty }, '尚未纳入。把它拖到上方角色节点即可加入。')))
 
       const outgoingRows = outgoing.map((edge, index) => h('div', { key: `o${index}`, style: styles.line }, [
         h('span', { key: 'to', style: styles.mono }, edge.to),
