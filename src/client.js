@@ -1055,13 +1055,14 @@ window.__ModuleLoader__.load({
                   role, plan, skills: list.skills, skillName: selectedSkill,
                   pending, error, send,
                   onDeleteRole: deleteRole,
+                  onOpenFailed: message => setError(message),
                 }),
               ]),
             ]),
           ])
           : null)
     }
-    function SkillDetail({ role, plan, health, skills, skillName, pending, error, send, onDeleteRole }) {
+    function SkillDetail({ role, plan, health, skills, skillName, pending, error, send, onDeleteRole, onOpenFailed }) {
       const [personaDraft, setPersonaDraft] = useState(role.persona?.prefix ?? '')
       const [confirmDelete, setConfirmDelete] = useState(false)
 
@@ -1129,6 +1130,27 @@ window.__ModuleLoader__.load({
         h('div', { key: 'state', style: styles.muted }, `${stateLabel}${info?.source ? ` · ${info.source}` : ''}`),
       ]
       if (info?.description) children.push(h('div', { key: 'desc', style: { ...styles.muted, marginTop: 6 } }, info.description))
+      if (info?.path !== undefined) {
+        children.push(h('div', { key: 'open', style: { marginTop: 10 } },
+          h('button', {
+            key: 'b',
+            style: { ...styles.button(true), marginLeft: 0 },
+            title: info.path,
+            onClick: () => {
+              if (openInSidebar === undefined) {
+                onOpenFailed('右侧边栏尚不可用，无法打开文件')
+                return
+              }
+              try {
+                // Hands the SKILL.md to DSH's own viewer, where it can be edited
+                // with the session's normal file tools.
+                openInSidebar(skillFileAddress(info.path))
+              } catch (cause) {
+                onOpenFailed(String(cause?.message ?? cause))
+              }
+            },
+          }, '打开 SKILL.md')))
+      }
       if (error !== undefined) children.push(h('div', { key: 'err', style: styles.error }, error))
 
       // Read-only: this box reports, it never edits. Membership and edges are
@@ -1161,6 +1183,16 @@ window.__ModuleLoader__.load({
 
       return h('div', null, children)
     }
+    // Captured once at apply time: the sidebar service is the only way to hand a
+    // file to DSH's own viewer, which is where editing a SKILL.md happens.
+    let openInSidebar
+
+    function skillFileAddress(path) {
+      const normalized = path.replace(/\\/g, '/')
+      const segments = normalized.split('/').map(segment => encodeURIComponent(segment).replace(/%3A/gi, ':'))
+      return 'dsh-resource://file/absolute/' + segments.join('/')
+    }
+
     function TabRolePanel() {
       return h(RolePage, { compact: true })
     }
@@ -1202,6 +1234,9 @@ window.__ModuleLoader__.load({
             description: () => '按角色编排技能依赖图',
           }],
         }), 'skill-loom: right tab type')
+        const rightService = ctx.get?.('sidebarRight')
+        if (rightService !== undefined) openInSidebar = rightService.openResource?.bind(rightService)
+
         ctx.slots.inject('sidebar.right.pane.tab', () => ctx.slots.register({
           name: 'sidebar.right.pane.tab',
           key: TAB_ID,

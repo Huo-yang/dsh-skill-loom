@@ -186,6 +186,9 @@ export function createResource({ store, catalog, exists, mutate, sessions }) {
             description: skill.description,
             source: skill.source,
             provider: skill.provider,
+            // Only used to hand the file to the sidebar's viewer; the page never
+            // reads it and no write path accepts it back.
+            path: skill.path,
           })),
         })
       }
