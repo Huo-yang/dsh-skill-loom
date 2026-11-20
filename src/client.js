@@ -465,7 +465,9 @@ window.__ModuleLoader__.load({
         }
         if (kind !== 'skill') return
         if (onRole) void send('members', { action: 'add_members', add: [value] })
-        else if (value !== target) void send('edges', { action: 'link', from: value, to: target })
+        // Dropping A onto B means B depends on A: you are adding a dependency to
+        // the node you dropped on, not to the one you dragged.
+        else if (value !== target) void send('edges', { action: 'link', from: target, to: value })
       }
 
       const roleReady = detail.status === 'ready'
@@ -583,7 +585,7 @@ window.__ModuleLoader__.load({
                     event.dataTransfer.setData('text/plain', 'skill:' + skill.name)
                     event.dataTransfer.effectAllowed = 'link'
                   },
-                  title: '拖到角色节点纳入，拖到技能节点建立依赖',
+                  title: '拖到角色节点即纳入；拖到技能节点即让该技能依赖它',
                   style: { ...styles.item(selectedSkill === skill.name), cursor: 'grab' },
                   onClick: () => setSelectedSkill(skill.name),
                 }, [
@@ -638,7 +640,7 @@ window.__ModuleLoader__.load({
               onClick: () => void send('members', { action: 'remove_members', remove: [skillName] }),
             }, '从角色中移除'))
         : h('div', { key: 'member', style: styles.section },
-            h('div', { style: styles.empty }, '尚未纳入。拖到角色节点即纳入，拖到另一个技能节点即建立依赖。')))
+            h('div', { style: styles.empty }, '尚未纳入。拖到角色节点即纳入；拖到某个技能节点，则那个技能依赖它。')))
 
       const outgoingRows = outgoing.map((edge, index) => h('div', { key: `o${index}`, style: styles.line }, [
         h('span', { key: 'to', style: styles.mono }, edge.to),
