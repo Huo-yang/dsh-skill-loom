@@ -302,7 +302,7 @@ export function topoLevels(role) {
     return level
   }
 
-  for (const node of requiresClosure(role)) levelOf(node)
+  for (const node of resolvedMembers(role)) levelOf(node)
   return levels
 }
 
@@ -326,10 +326,10 @@ export function topoLevels(role) {
 export function computeHealth(role, repository) {
   const index = normalizeRepository(repository)
   const requires = requiresMap(role)
-  // A saved role carries the whole closure in `members`; using the closure here
-  // makes the same function answer "what would the runtime see" for an unsaved
-  // draft too.
-  const scope = requiresClosure(role)
+  // A saved role carries the whole closure in `members`; using the resolved set
+  // here answers "what would the runtime see" for an unsaved draft too, including
+  // edge sources that are not members yet.
+  const scope = resolvedMembers(role)
 
   const red = [...scope].filter(name => !index.has(name))
   const redSet = new Set(red)
