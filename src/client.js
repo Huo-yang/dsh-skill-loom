@@ -961,7 +961,7 @@ window.__ModuleLoader__.load({
         // History controls sit on the drawing area itself: they act on the graph,
         // not on the role's identity, so they do not belong in the role card.
         roleReady
-          ? h('div', { style: { ...styles.historyBar, right: panelOpen && !compact ? 368 : 12 } }, [
+          ? h('div', { style: { ...styles.historyBar, right: compact ? 12 : 368 } }, [
             h('button', {
               key: 'undo',
               style: { ...styles.button(!pending && (detail.history?.undo ?? 0) > 0), marginLeft: 0, height: 24, padding: '0 8px' },
