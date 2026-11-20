@@ -743,9 +743,17 @@ window.__ModuleLoader__.load({
         if (appsLoading) return []
         setAppsLoading(true)
         try {
-          const response = await fetch('/open-in-app/apps', { headers: { accept: 'application/json' } })
-          const body = await response.json().catch(() => ({}))
-          if (!response.ok) throw new Error(body.message ?? body.code ?? 'HTTP ' + response.status)
+          const response = await fetch('/open-in-app/apps', { headers: { accept: 'application/json' }, credentials: 'same-origin' })
+          const text = await response.text()
+          let body = {}
+          try {
+            body = text === '' ? {} : JSON.parse(text)
+          } catch {
+            body = {}
+          }
+          if (!response.ok) {
+            throw new Error('HTTP ' + response.status + ' ' + String(body.code ?? body.message ?? text.slice(0, 120)))
+          }
           const list = Array.isArray(body) ? body : (Array.isArray(body.apps) ? body.apps : [])
           setApps(list)
           return list
@@ -763,10 +771,19 @@ window.__ModuleLoader__.load({
           const response = await fetch('/open-in-app/open', {
             method: 'POST',
             headers: { 'content-type': 'application/json' },
+            credentials: 'same-origin',
             body: JSON.stringify({ app: appId, path: dir }),
           })
-          const body = await response.json().catch(() => ({}))
-          if (!response.ok) throw new Error(body.message ?? body.code ?? 'HTTP ' + response.status)
+          const text = await response.text()
+          let body = {}
+          try {
+            body = text === '' ? {} : JSON.parse(text)
+          } catch {
+            body = {}
+          }
+          if (!response.ok) {
+            throw new Error('HTTP ' + response.status + ' ' + String(body.code ?? body.message ?? text.slice(0, 120)))
+          }
           setAppMenuFor(undefined)
           setNotice('已用 ' + appId + ' 打开 ' + dir)
         } catch (cause) {
@@ -1234,7 +1251,7 @@ window.__ModuleLoader__.load({
                 // with the session's normal file tools.
                 openInSidebar(skillFileAddress(info.path))
               } catch (cause) {
-                onOpenFailed(String(cause?.message ?? cause))
+                onOpenFailed('打开失败：' + String(cause?.name ?? '') + ' ' + String(cause?.message ?? cause))
               }
             },
           }, '查看 SKILL.md'),
