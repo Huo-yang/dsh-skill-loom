@@ -1106,7 +1106,15 @@ window.__ModuleLoader__.load({
                     event.dataTransfer.effectAllowed = 'link'
                   },
                   title: '拖到角色节点即纳入；拖到技能节点即依赖该技能',
-                  style: { ...styles.item(selectedSkill === skill.name), cursor: 'grab', position: 'relative' },
+                  style: {
+                    ...styles.item(selectedSkill === skill.name),
+                    cursor: 'grab',
+                    position: 'relative',
+                    // Without this the browser drags a text selection instead of the
+                    // row, which shows up as the platform search-the-web gesture.
+                    userSelect: 'none',
+                    WebkitUserSelect: 'none',
+                  },
                   onClick: () => setSelectedSkill(skill.name),
                 }, [
                   h('div', { key: 'n', style: styles.itemName },
