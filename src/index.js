@@ -31,13 +31,14 @@ import { BindingStore, bindingsFileFor } from './bindings.js'
 import { restoreBoundRoles, sessionIdOf } from './lifecycle.js'
 import { installRole } from './runtime.js'
 import { createDebouncedTask } from './scheduler.js'
+import { createOverrideRegistry, resolveCreatedRole } from './spawn.js'
 import { RoleStore } from './store.js'
 
 /** Cordis plugin name. */
 export const name = 'skill-loom'
 
 /** Services this plugin needs. */
-export const inject = ['tools', 'skills', 'systemPrompt', 'workingDirectory', 'agents']
+export const inject = ['tools', 'skills', 'systemPrompt', 'workingDirectory', 'agents', 'subagents']
 
 /** Default roles directory, honouring `DSH_HOME`. */
 export function defaultRolesDir() {
@@ -71,6 +72,7 @@ export function apply(ctx, config = {}) {
   const bindings = new BindingStore(bindingsFileFor(rolesDir))
   /** @type {Map<string, { dispose: () => void }>} */
   const generations = new Map()
+  const overrides = createOverrideRegistry()
   // Capture services once: after unload the context is inactive and even
   // ctx.logger may throw on access.
   const logger = ctx.logger
@@ -227,16 +229,84 @@ export function apply(ctx, config = {}) {
 
   ctx.tools.register(tool)
 
+  const roleSpawn = defineTool({
+    name: 'role_spawn',
+    description: 'Spawn a subagent that runs under a named role instead of inheriting the caller role. Use the native subagent tool when no role is needed.',
+    parameters: {
+      role: { type: 'string', required: true, description: 'Role UUID or display name.' },
+      prompt: { type: 'string', required: true, description: 'The task for the child.' },
+      description: { type: 'string', description: 'Short label shown in the subagent list.' },
+    },
+    output: {
+      schema: { type: 'object', additionalProperties: true },
+      render: (_args, value) => [{ type: 'text', text: JSON.stringify(value, null, 2) }],
+    },
+    async execute(args, exec) {
+      const parent = exec.agent
+      if (parent === undefined) throw new Error('NO_AGENT: role_spawn requires an agent session')
+      const parentSession = sessionIdOf(parent)
+      if (parentSession === undefined) throw new Error('NO_SESSION: role_spawn cannot identify the calling session')
+
+      let role
+      try {
+        role = await api.resolve(args.role)
+      } catch (error) {
+        if (error instanceof RoleGraphError) throw new Error(`${error.code}: ${error.message}`)
+        throw error
+      }
+
+      // Register, spawn, clear — all inside one tool call, and one agent never
+      // runs two tool calls at once, so no other child can consume this.
+      overrides.set(parentSession, role.id)
+      try {
+        const started = await ctx.subagents.startActivation({
+          provider: config.subagentProvider ?? 'spawn',
+          label: args.description ?? role.name,
+          prompt: [{ type: 'text', text: args.prompt }],
+          parent,
+          signal: exec.signal,
+          delivery: 'parent',
+        })
+        return { ok: true, role: { id: role.id, name: role.name }, child: started.name }
+      } catch (error) {
+        if (/exceeds maxDepth/.test(String(error?.message ?? ''))) {
+          throw new Error(
+            'DELEGATION_DEPTH: the host delegation-depth cap is already reached, so no further child can be spawned; '
+            + 'raise the subagent maxDepth configuration if deeper delegation is intended',
+          )
+        }
+        throw error
+      } finally {
+        overrides.clear(parentSession)
+      }
+    },
+  })
+  ctx.tools.register(roleSpawn)
+
   ctx.on('agent/created', async ({ agent }) => {
     if (!active) return
     const sessionId = sessionIdOf(agent)
     if (sessionId === undefined) return
-    const role = await boundRole(sessionId)
-    if (!active || role === undefined) return
+    let decision
     try {
-      await install(agent, sessionId, role)
+      decision = await resolveCreatedRole({
+        sessionId,
+        parentSession: agent?.session?.header?.parentSession,
+        takeOverride: parentId => overrides.take(parentId),
+        boundRoleFor: id => bindings.get(id),
+        loadRole: id => store.read(id),
+      })
     } catch (error) {
-      logger?.warn?.(`skill-loom: could not install role "${role.name}" for ${sessionId}: ${String(error)}`)
+      logger?.warn?.(`skill-loom: could not resolve a role for ${sessionId}: ${String(error)}`)
+      return
+    }
+    if (!active || decision.role === undefined) return
+    try {
+      // Persist so a reload can restore the child without its parent.
+      await bindings.set(sessionId, decision.role.id)
+      await install(agent, sessionId, decision.role)
+    } catch (error) {
+      logger?.warn?.(`skill-loom: could not install role "${decision.role.name}" for ${sessionId}: ${String(error)}`)
     }
   })
 

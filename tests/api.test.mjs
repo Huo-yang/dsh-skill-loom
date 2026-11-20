@@ -271,3 +271,14 @@ test('bind of an unknown role fails before touching the session', async () => {
   )
   assert.equal(called, false)
 })
+// --- role resolution -----------------------------------------------------
+
+test('resolve accepts a uuid or a display name and rejects the rest', async () => {
+  const handler = api()
+  const created = await handler.handle({ action: 'create', name: '审阅' })
+  const id = created.result.role.id
+  assert.equal((await handler.resolve(id)).id, id)
+  assert.equal((await handler.resolve('审阅')).id, id)
+  await assert.rejects(() => handler.resolve('nope'), error => error.code === 'ROLE_NOT_FOUND')
+  await assert.rejects(() => handler.resolve(''), error => error.code === 'ROLE_REQUIRED')
+})

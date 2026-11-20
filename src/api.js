@@ -286,5 +286,5 @@ export function createRoleGraphApi(deps) {
     return { ok: true, action, result: saved }
   }
 
-  return { handle }
+  return { handle, resolve: load }
 }
