@@ -177,7 +177,7 @@ window.__ModuleLoader__.load({
         setEdgeDrag({ index, edge, ox: point.x, oy: point.y, x: point.x, y: point.y, moved: false })
       }
 
-      const beginLink = (name, requested) => event => {
+      const beginDrag = (name, mode) => event => {
         if (event.button !== 0) return
         event.stopPropagation()
         svgRef.current?.setPointerCapture?.(event.pointerId)
@@ -186,10 +186,10 @@ window.__ModuleLoader__.load({
           setDrag({ from: name, mode: 'none', ox: point.x, oy: point.y, x: point.x, y: point.y, moved: false })
           return
         }
-        // One gesture, two drop targets: a node creates an edge, the trash zone
-        // removes the member. Nothing about the drag itself implies deleting.
-        setDrag({ from: name, mode: 'link', ox: point.x, oy: point.y, x: point.x, y: point.y, moved: false })
-        onRemovalDrag(true)
+        // Two intents on one canvas: the port adds an edge, the box replaces the
+        // existing ones, and the trash zone removes the member.
+        setDrag({ from: name, mode, ox: point.x, oy: point.y, x: point.x, y: point.y, moved: false })
+        if (mode === 'replace') onRemovalDrag(true)
       }
       const moveLink = event => {
         const point = pointOf(event)
@@ -201,7 +201,7 @@ window.__ModuleLoader__.load({
         if (drag === undefined) return
         const moved = drag.moved || Math.abs(point.x - drag.ox) + Math.abs(point.y - drag.oy) > 6
         setDrag({ ...drag, x: point.x, y: point.y, moved })
-        if (drag.mode === 'link') setHoverTarget(moved ? nodeAt(point.x, point.y) : undefined)
+        setHoverTarget(moved ? nodeAt(point.x, point.y) : undefined)
       }
       const endLink = event => {
         if (edgeDrag !== undefined) {
@@ -334,7 +334,7 @@ window.__ModuleLoader__.load({
         const active = selected === node.name
         const stateColor = node.kind === 'role' ? COLORS.role : colorOf(node.name)
         const isDropTarget = dropTarget === node.name || (hoverTarget === node.name && drag !== undefined && drag.moved)
-        const ghosting = drag !== undefined && drag.from === node.name && drag.mode === 'link' && drag.moved
+        const ghosting = drag !== undefined && drag.from === node.name && drag.mode === 'replace' && drag.moved
         const ghost = ghosting ? { dx: drag.x - drag.ox, dy: drag.y - drag.oy } : { dx: 0, dy: 0 }
         return h('g', { key: node.name }, [
           // The placeholder stays at the node's original cell while its box is
@@ -352,7 +352,7 @@ window.__ModuleLoader__.load({
             key: 'node',
             transform: `translate(${position.x - NODE_W / 2 + ghost.dx}, ${position.y - NODE_H + ghost.dy})`,
             opacity: ghosting ? 0.85 : 1,
-            onPointerDown: beginLink(node.name, 'link'),
+            onPointerDown: beginDrag(node.name, 'replace'),
             onPointerEnter: () => setHovered(node.name),
             onPointerLeave: () => setHovered(current => (current === node.name ? undefined : current)),
             style: { cursor: 'grab' },
@@ -384,9 +384,20 @@ window.__ModuleLoader__.load({
               x: 26, y: NODE_H / 2 + 4, fontSize: 12, fill: 'currentColor',
               style: { fontFamily: 'ui-monospace, SFMono-Regular, Consolas, monospace' },
             }, node.label.length > 17 ? `${node.label.slice(0, 16)}…` : node.label),
-            node.kind === 'role' ? null : h('g', {
+            node.kind === 'role' ? null : h('circle', {
+              key: 'port',
+              cx: NODE_W + 7,
+              cy: NODE_H / 2,
+              r: 5,
+              fill: 'var(--dsw-alias-bg-layer-1, #ffffff)',
+              stroke: 'currentColor',
+              strokeOpacity: 0.45,
+              strokeWidth: 1.2,
+              style: { cursor: 'crosshair' },
+              onPointerDown: beginDrag(node.name, 'add'),
+            }, h('title', null, '拖出以新增一条依赖（保留原有依赖）')),            node.kind === 'role' ? null : h('g', {
               key: 'grip',
-              onPointerDown: beginLink(node.name, 'move'),
+              onPointerDown: beginDrag(node.name, 'replace'),
               style: { cursor: 'grab' },
             }, [
               h('title', { key: 'tip' }, '拖动握把搬走节点，放到删除区即移除'),
@@ -729,11 +740,12 @@ window.__ModuleLoader__.load({
                   plan,
                   selected: selectedSkill,
                   onSelect: setSelectedSkill,
-                  onCreateEdge: (from, to) => {
+                  onCreateEdge: (from, to, mode) => {
                     // Either direction against the role node means "include this
                     // skill"; skill-to-skill means "requires".
                     if (from === '__role__') void send('members', { action: 'add_members', add: [to] })
                     else if (to === '__role__') void send('members', { action: 'add_members', add: [from] })
+                    else if (mode === 'add') void send('edges', { action: 'link', from, to }, '已新增依赖：' + from + ' → ' + to)
                     else void send('edges', { action: 'reparent', from, to }, '已清空 ' + from + ' 原有依赖，改为仅依赖 ' + to)
                   },
                   onDropOnNode: dropOnNode,
