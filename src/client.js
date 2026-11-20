@@ -218,20 +218,49 @@ window.__ModuleLoader__.load({
       for (const name of plan.members ?? []) edges.push({ from: '__role__', to: name, include: true })
       for (const edge of role.edges ?? []) edges.push({ from: edge.from, to: edge.to })
 
+      // Orthogonal routing keeps every edge out of the node boxes: the only
+      // horizontal run happens in the empty band just above the target row, and
+      // a vertical leg that would cross another box is moved to a side lane.
+      const GAP_Y = ROW_H - NODE_H
       const pathOf = edge => {
         const a = geom.positions.get(edge.from)
         const b = geom.positions.get(edge.to)
         if (a === undefined || b === undefined) return undefined
-        // Draw from whichever sides face each other, so the arrow never loops
-        // back over the nodes when the dependency sits above its consumer.
-        const fromY = b.y < a.y ? a.y - NODE_H : a.y
-        const toY = b.y < a.y ? b.y : b.y - NODE_H
-        const mid = (fromY + toY) / 2
+
+        if (Math.abs(a.y - b.y) < 1) {
+          const y = a.y - NODE_H / 2
+          const rightward = b.x > a.x
+          const x1 = a.x + (rightward ? NODE_W / 2 : -NODE_W / 2)
+          const x2 = b.x + (rightward ? -NODE_W / 2 : NODE_W / 2)
+          return { d: `M ${x1} ${y} L ${x2} ${y}`, from: { x: x1, y }, to: { x: x2, y }, mid: { x: (x1 + x2) / 2, y } }
+        }
+
+        const targetAbove = b.y < a.y
+        const fromY = targetAbove ? a.y - NODE_H : a.y
+        const toY = targetAbove ? b.y : b.y - NODE_H
+        const laneY = targetAbove ? toY - GAP_Y / 2 : toY + GAP_Y / 2
+
+        let laneX = a.x
+        const lowY = Math.min(fromY, laneY)
+        const highY = Math.max(fromY, laneY)
+        const blocked = [...geom.positions].some(([name, p]) => {
+          if (name === edge.from || name === edge.to) return false
+          const nearX = Math.abs(p.x - laneX) < NODE_W / 2 + 12
+          const top = p.y - NODE_H
+          const overlapsY = top < highY && p.y > lowY
+          return nearX && overlapsY
+        })
+        if (blocked) laneX = b.x >= a.x ? a.x + NODE_W / 2 + 28 : a.x - NODE_W / 2 - 28
+
+        const jog = laneX === a.x
+          ? ''
+          : `M ${a.x} ${fromY} L ${laneX} ${fromY} L ${laneX} ${laneY} `
+        const head = jog === '' ? `M ${a.x} ${fromY} L ${a.x} ${laneY} ` : jog
         return {
-          d: `M ${a.x} ${fromY} C ${a.x} ${mid}, ${b.x} ${mid}, ${b.x} ${toY}`,
+          d: `${head}L ${b.x} ${laneY} L ${b.x} ${toY}`,
           from: { x: a.x, y: fromY },
           to: { x: b.x, y: toY },
-          mid: { x: (a.x + b.x) / 2, y: (fromY + toY) / 2 },
+          mid: { x: (laneX + b.x) / 2, y: laneY },
         }
       }
 
@@ -256,8 +285,8 @@ window.__ModuleLoader__.load({
       },
       h('defs', null, h('marker', {
         id: 'loom-arrow', viewBox: '0 0 8 8', refX: 7, refY: 4,
-        markerWidth: 6, markerHeight: 6, orient: 'auto-start-reverse',
-      }, h('path', { d: 'M0,0 L8,4 L0,8 z', fill: 'currentColor', opacity: 0.55 }))),
+        markerWidth: 7, markerHeight: 7, orient: 'auto-start-reverse',
+      }, h('path', { d: 'M0,0 L8,4 L0,8 z', fill: 'currentColor', opacity: 0.7 }))),
 
       edges.map((edge, index) => {
         const route = pathOf(edge)
@@ -271,6 +300,7 @@ window.__ModuleLoader__.load({
             strokeOpacity: dragging ? 0.9 : edge.include ? 0.22 : 0.5,
             strokeWidth: dragging ? 1.8 : 1.4,
             strokeDasharray: edge.include || dragging ? '4 3' : undefined,
+            markerEnd: dragging ? undefined : 'url(#loom-arrow)',
           }),
           // Only a real dependency can be detached; an include line is membership.
           edge.include || dragging
