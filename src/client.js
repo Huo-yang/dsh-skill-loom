@@ -1039,6 +1039,15 @@ window.__ModuleLoader__.load({
           kind: TAB_KIND,
           priority: 'builtin',
           title: () => '技能编排',
+          // Entries on the sidebar's default page, beside "workspace files" and
+          // "new terminal": the user opens the tab from there instead of waiting
+          // for anything to open it for them.
+          guide: [{
+            id: 'skill-loom',
+            order: 40,
+            title: () => '技能编排',
+            description: () => '按角色编排技能依赖图',
+          }],
         }), 'skill-loom: right tab type')
         ctx.slots.inject('sidebar.right.pane.tab', () => ctx.slots.register({
           name: 'sidebar.right.pane.tab',
