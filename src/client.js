@@ -221,7 +221,7 @@ window.__ModuleLoader__.load({
           if (removed) {
             // handled by the trash zone
           } else if (target !== undefined && target !== drag.from) {
-            onCreateEdge(drag.from, target)
+            onCreateEdge(drag.from, target, drag.mode === 'add' ? 'add' : 'replace')
           } else {
             onDropMissed(drag.from)
           }
