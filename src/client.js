@@ -369,7 +369,7 @@ window.__ModuleLoader__.load({
         ])
       }))
     }
-    function RolePage() {
+    function RolePage({ compact = false } = {}) {
       const [list, setList] = useState({ status: 'loading', roles: [], skills: [] })
       const [selectedRole, setSelectedRole] = useState(undefined)
       const [detail, setDetail] = useState({ status: 'idle' })
@@ -638,11 +638,26 @@ window.__ModuleLoader__.load({
 
       const filtered = list.skills.filter(skill => filter === '' || skill.name.includes(filter))
 
-      return h('div', { style: styles.stage },
+      // A right-sidebar pane is narrow, so the same page stacks vertically there
+      // instead of floating two absolute panels.
+      const stageStyle = compact
+        ? { display: 'flex', flexDirection: 'column', height: '100%', minHeight: 0, position: 'relative', font: 'inherit', color: 'inherit', overflow: 'hidden' }
+        : styles.stage
+      const canvasStyle = compact
+        ? { ...styles.canvasFill, position: 'relative', inset: 'auto', flex: '1 1 52%', minHeight: 160, paddingRight: 0 }
+        : (panelOpen ? { ...styles.canvasFill, paddingRight: 356 } : styles.canvasFill)
+      const cardStyle = compact
+        ? { ...styles.roleCard, position: 'relative', top: 'auto', left: 'auto', width: 'auto', borderRadius: 0, border: 'none', borderBottom: '1px solid var(--dsw-alias-border-l2, rgba(127,127,127,.28))', boxShadow: 'none', zIndex: 1 }
+        : { ...styles.roleCard, left: cardPos.x, top: cardPos.y }
+      const panelStyle = compact
+        ? { ...styles.panel, position: 'relative', top: 'auto', right: 'auto', bottom: 'auto', width: 'auto', flex: '1 1 48%', minHeight: 0, borderRadius: 0, border: 'none', boxShadow: 'none', zIndex: 1 }
+        : styles.panel
+
+      return h('div', { style: stageStyle },
         h('div', {
           ref: canvasRef,
           style: {
-            ...(panelOpen ? { ...styles.canvasFill, paddingRight: 356 } : styles.canvasFill),
+            ...canvasStyle,
             // While a node is being carried it must stay above the floating panels.
             ...(removalActive ? { zIndex: 4 } : {}),
             cursor: panning ? 'grabbing' : 'default',
@@ -689,7 +704,7 @@ window.__ModuleLoader__.load({
           ])),
 
         removalActive ? h('div', { ref: zoneRef, style: styles.trashZone }, '拖到此处移除') : null,
-        h('div', { style: { ...styles.roleCard, left: cardPos.x, top: cardPos.y } },
+        h('div', { style: cardStyle },
           h('div', {
             style: { ...styles.cardHead, cursor: dragging ? 'grabbing' : 'grab' },
             onPointerDown: startDrag,
@@ -744,7 +759,7 @@ window.__ModuleLoader__.load({
           ),
 
         panelOpen && roleReady
-          ? h('div', { style: styles.panel },
+          ? h('div', { style: panelStyle },
             h('div', { style: styles.panelHead },
               h('input', {
                 value: filter,
@@ -919,6 +934,13 @@ window.__ModuleLoader__.load({
 
       return h('div', null, children)
     }
+    function TabRolePanel() {
+      return h(RolePage, { compact: true })
+    }
+
+    const TAB_ID = 'dsh-skill-loom/tab'
+    const TAB_KIND = 'skillLoom'
+
     return {
       inject: ['slots'],
       apply(ctx) {
@@ -932,6 +954,22 @@ window.__ModuleLoader__.load({
           name: 'main',
           key: 'skill-loom',
         }, RolePage))
+
+        // The right sidebar keeps the conversation visible, which is the whole
+        // point of a second surface. Registered only when the host exposes the
+        // tab system, so an older client degrades to the main panel alone.
+        const tabs = ctx.get?.('sidebarRightTabs')
+        if (tabs === undefined) return
+        ctx.effect(() => tabs.register({
+          id: TAB_ID,
+          kind: TAB_KIND,
+          priority: 'builtin',
+          title: () => '技能编排',
+        }), 'skill-loom: right tab type')
+        ctx.slots.inject('sidebar.right.pane.tab', () => ctx.slots.register({
+          name: 'sidebar.right.pane.tab',
+          key: TAB_ID,
+        }, TabRolePanel))
       },
     }
   },
