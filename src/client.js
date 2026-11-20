@@ -108,6 +108,17 @@ window.__ModuleLoader__.load({
       },
     }
 
+    const MENU_CSS = `
+.loom-menu { margin-top: 6px; padding: 4px; border-radius: 8px; max-height: 200px; overflow-y: auto;
+  background: var(--dsw-alias-bg-layer-2, #ffffff);
+  border: 1px solid var(--dsw-alias-border-l2, rgba(127,127,127,.28));
+  box-shadow: 0 8px 24px rgba(0,0,0,.14); }
+.loom-menu--float { position: absolute; top: calc(100% + 4px); right: 0; left: auto; width: 190px; z-index: 30; }
+.loom-menu-item { display: flex; align-items: center; gap: 8px; padding: 6px 10px; border-radius: 6px;
+  font-size: 12px; line-height: 1.2; cursor: pointer; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.loom-menu-item:hover { background: var(--dsw-alias-bg-multi-select, rgba(127,127,127,.16)); }
+.loom-menu-empty { padding: 6px 10px; font-size: 12px; opacity: .6; }
+`
     function SidebarIcon() {
       return h('svg', { viewBox: '0 0 16 16', width: 16, height: 16, 'aria-hidden': true, style: { display: 'block' } },
         h('path', { d: 'M2 3.5h5v5H2zM9 3.5h5v2H9zM9 6.5h5v5H9zM2 10.5h5v2H2z', fill: 'currentColor', opacity: 0.85 }))
@@ -929,6 +940,7 @@ window.__ModuleLoader__.load({
                       : '选择一个角色查看依赖图'),
           ])),
 
+        h('style', { key: 'loom-css' }, MENU_CSS),
         error !== undefined
           ? h('div', { style: { ...styles.toast, color: COLORS.red, borderColor: COLORS.red } }, error)
           : notice !== undefined
@@ -1137,14 +1149,14 @@ window.__ModuleLoader__.load({
                   appMenuFor === skill.name
                     ? h('div', {
                         key: 'menu',
-                        style: { ...styles.roleMenu, top: '100%', left: 'auto', right: 0, width: 190, zIndex: 30 },
+                        className: 'loom-menu loom-menu--float',
                       }, appsLoading
-                        ? h('div', { key: 'l', style: styles.empty }, '读取中…')
+                        ? h('div', { key: 'l', className: 'loom-menu-empty' }, '读取中…')
                         : (apps ?? []).length === 0
-                          ? h('div', { key: 'e', style: styles.empty }, '没有可用的应用')
+                          ? h('div', { key: 'e', className: 'loom-menu-empty' }, '没有可用的应用')
                           : (apps ?? []).map(app => h('div', {
                               key: appKey(app),
-                              style: { ...styles.roleRow, cursor: 'pointer' },
+                              className: 'loom-menu-item',
                               onClick: event => {
                                 event.stopPropagation()
                                 void launchInApp(appKey(app), folderOf(skill.path))
@@ -1249,21 +1261,19 @@ window.__ModuleLoader__.load({
               await loadApps()
               setPickerOpen(value => !value)
             },
-          }, pickerOpen ? '选择应用 ▴' : '在应用中打开 ▾')))
+          }, '在应用中打开 ' + (pickerOpen ? '▴' : '▾'))))
         if (pickerOpen) {
-          children.push(h('div', {
-            key: 'applist',
-            style: { ...styles.roleMenu, position: 'static', marginTop: 6, maxHeight: 180 },
-          }, (apps ?? []).length === 0
-            ? h('div', { key: 'e', style: styles.empty }, '没有可用的应用')
-            : (apps ?? []).map(app => h('div', {
-                key: appKey(app),
-                style: { ...styles.roleRow, cursor: 'pointer' },
-                onClick: () => {
-                  setPickerOpen(false)
-                  void launchInApp(appKey(app), dir)
-                },
-              }, appLabel(app)))))
+          children.push(h('div', { key: 'applist', className: 'loom-menu' },
+            (apps ?? []).length === 0
+              ? h('div', { key: 'e', className: 'loom-menu-empty' }, '没有可用的应用')
+              : (apps ?? []).map(app => h('div', {
+                  key: appKey(app),
+                  className: 'loom-menu-item',
+                  onClick: () => {
+                    setPickerOpen(false)
+                    void launchInApp(appKey(app), dir)
+                  },
+                }, appLabel(app)))))
         }
       }
       children.push(h('div', { key: 'member', style: styles.section },
