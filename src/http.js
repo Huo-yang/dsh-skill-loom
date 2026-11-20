@@ -13,6 +13,8 @@
  * @module dsh-skill-loom/http
  */
 
+import { readFile } from 'node:fs/promises'
+
 import { computeHealth, explainMissing, planRole } from './graph.js'
 
 /** Prefix every route lives under. */
@@ -191,6 +193,27 @@ export function createResource({ store, catalog, exists, mutate, sessions }) {
             path: skill.path,
           })),
         })
+      }
+
+      const contentMatch = /^skills\/([^/]+)\/content$/.exec(rest)
+      if (contentMatch !== null) {
+        if (method !== 'GET') return json({ error: 'method-not-allowed' }, 405)
+        const skillName = decodeURIComponent(contentMatch[1])
+        const skill = repo.get(skillName)
+        if (skill === undefined || typeof skill.path !== 'string') return json({ error: 'skill-not-found' }, 404)
+        try {
+          const text = await readFile(skill.path, 'utf8')
+          return json({
+            name: skillName,
+            path: skill.path,
+            // A SKILL.md is small; the cap only stops a pathological file from
+            // filling the panel.
+            text: text.slice(0, 20000),
+            truncated: text.length > 20000,
+          })
+        } catch {
+          return json({ error: 'unreadable' }, 500)
+        }
       }
 
       if (rest === 'sessions') {

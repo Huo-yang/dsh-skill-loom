@@ -1143,13 +1143,13 @@ window.__ModuleLoader__.load({
                         : (apps ?? []).length === 0
                           ? h('div', { key: 'e', style: styles.empty }, '没有可用的应用')
                           : (apps ?? []).map(app => h('div', {
-                              key: app.id ?? app.app,
+                              key: appKey(app),
                               style: { ...styles.roleRow, cursor: 'pointer' },
                               onClick: event => {
                                 event.stopPropagation()
-                                void launchInApp(app.id ?? app.app, folderOf(skill.path))
+                                void launchInApp(appKey(app), folderOf(skill.path))
                               },
-                            }, app.title ?? app.label ?? app.id ?? app.app)))
+                            }, appLabel(app))))
                     : null,
                 ])
               })),
@@ -1170,6 +1170,7 @@ window.__ModuleLoader__.load({
       const [personaDraft, setPersonaDraft] = useState(role.persona?.prefix ?? '')
       const [confirmDelete, setConfirmDelete] = useState(false)
       const [pickerOpen, setPickerOpen] = useState(false)
+      const [preview, setPreview] = useState(undefined)
 
       useEffect(() => {
         setPersonaDraft(role.persona?.prefix ?? '')
@@ -1241,20 +1242,25 @@ window.__ModuleLoader__.load({
             key: 'view',
             style: { ...styles.button(true), marginLeft: 0 },
             title: info.path,
-            onClick: () => {
-              if (openInSidebar === undefined) {
-                onOpenFailed('右侧边栏尚不可用，无法打开文件')
+            onClick: async () => {
+              if (preview !== undefined) {
+                setPreview(undefined)
                 return
               }
+              setPreview('loading')
               try {
-                // Hands the SKILL.md to DSH's own viewer, where it can be edited
-                // with the session's normal file tools.
-                openInSidebar(skillFileAddress(info.path))
+                const response = await fetch('/skill-loom/skills/' + encodeURIComponent(skillName) + '/content', {
+                  headers: { accept: 'application/json' },
+                })
+                const body = await response.json().catch(() => ({}))
+                if (!response.ok) throw new Error('HTTP ' + response.status)
+                setPreview({ text: String(body.text ?? ''), truncated: body.truncated === true })
               } catch (cause) {
-                onOpenFailed('打开失败：' + String(cause?.name ?? '') + ' ' + String(cause?.message ?? cause))
+                setPreview(undefined)
+                onOpenFailed('读取文件失败：' + String(cause?.message ?? cause))
               }
             },
-          }, '查看 SKILL.md'),
+          }, preview === undefined ? '查看 SKILL.md' : '收起预览'),
           h('button', {
             key: 'openwith',
             style: { ...styles.button(!appsLoading), marginLeft: 0 },
@@ -1272,8 +1278,8 @@ window.__ModuleLoader__.load({
               } catch {
                 remembered = undefined
               }
-              const pick = list.find(app => (app.id ?? app.app) === remembered) ?? list[0]
-              await launchInApp(pick.id ?? pick.app, folderOf(info.path))
+              const pick = list.find(app => appKey(app) === remembered) ?? list[0]
+              await launchInApp(appKey(pick), folderOf(info.path))
             },
           }, '在应用中打开'),
           (apps ?? []).length > 1
@@ -1288,21 +1294,36 @@ window.__ModuleLoader__.load({
               }, '▾')
             : null,
         ))
+        if (preview !== undefined) {
+          // The sidebar's text viewer only claims session-workspace files, so a
+          // SKILL.md living outside the workspace is rendered here instead.
+          children.push(h('pre', {
+            key: 'preview',
+            style: {
+              maxHeight: 260, overflow: 'auto', marginTop: 8, padding: 8, borderRadius: 6,
+              fontSize: 11, lineHeight: 1.5, whiteSpace: 'pre-wrap', wordBreak: 'break-word',
+              background: 'var(--dsw-alias-bg-layer-1, #ffffff)',
+              border: '1px solid var(--dsw-alias-border-l2, rgba(127,127,127,.25))',
+            },
+          }, preview === 'loading'
+            ? '读取中…'
+            : preview.text + (preview.truncated ? '\n\n…（已截断）' : '')))
+        }
         if (pickerOpen) {
           children.push(h('div', { key: 'applist', style: { ...styles.roleMenu, position: 'static', marginTop: 6, maxHeight: 160 } },
             (apps ?? []).map(app => h('div', {
-              key: app.id ?? app.app,
+              key: appKey(app),
               style: { ...styles.roleRow, cursor: 'pointer' },
               onClick: () => {
                 try {
-                  globalThis.localStorage?.setItem('skill-loom:open-with', app.id ?? app.app)
+                  globalThis.localStorage?.setItem('skill-loom:open-with', appKey(app))
                 } catch {
                   // A blocked storage just means no remembered choice.
                 }
                 setPickerOpen(false)
-                void launchInApp(app.id ?? app.app, folderOf(info.path))
+                void launchInApp(appKey(app), folderOf(info.path))
               },
-            }, app.title ?? app.label ?? app.id ?? app.app))))
+            }, appLabel(app)))))
         }
       }
       children.push(h('div', { key: 'member', style: styles.section },
@@ -1337,6 +1358,15 @@ window.__ModuleLoader__.load({
     // file to DSH's own viewer, which is where editing a SKILL.md happens.
     let openInSidebar
     let openTabInSidebar
+
+    // The host route answers with plain application ids, not records.
+    function appKey(app) {
+      return typeof app === 'string' ? app : (app?.id ?? app?.app ?? '')
+    }
+
+    function appLabel(app) {
+      return typeof app === 'string' ? app : (app?.title ?? app?.label ?? app?.id ?? app?.app ?? '')
+    }
 
     function skillFileAddress(path) {
       const normalized = path.replace(/\\/g, '/')
