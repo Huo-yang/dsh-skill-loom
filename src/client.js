@@ -118,6 +118,10 @@ window.__ModuleLoader__.load({
   font-size: 12px; line-height: 1.2; cursor: pointer; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .loom-menu-item:hover { background: var(--dsw-alias-bg-multi-select, rgba(127,127,127,.16)); }
 .loom-menu-empty { padding: 6px 10px; font-size: 12px; opacity: .6; }
+.loom-option { display: inline-flex; align-items: center; gap: 4px; height: 26px; padding: 0 8px; border-radius: 6px;
+  border: 1px solid var(--dsw-alias-border-l2, rgba(127,127,127,.28)); background: transparent; color: inherit;
+  font: inherit; font-size: 12px; cursor: pointer; }
+.loom-option:hover { background: var(--dsw-alias-bg-multi-select, rgba(127,127,127,.12)); }
 `
     function SidebarIcon() {
       return h('svg', { viewBox: '0 0 16 16', width: 16, height: 16, 'aria-hidden': true, style: { display: 'block' } },
@@ -474,7 +478,6 @@ window.__ModuleLoader__.load({
       const [error, setError] = useState(undefined)
       const [filter, setFilter] = useState('')
       const [cardCollapsed, setCardCollapsed] = useState(false)
-      const [sessions, setSessions] = useState([])
       const [removalActive, setRemovalActive] = useState(false)
       const [notice, setNotice] = useState(undefined)
       const [roleMenu, setRoleMenu] = useState(false)
@@ -586,16 +589,6 @@ window.__ModuleLoader__.load({
         }
       }, [])
 
-      const loadSessions = useCallback(async () => {
-        try {
-          const response = await fetch(`${API}/sessions`, { headers: { accept: 'application/json' } })
-          if (!response.ok) return
-          const body = await response.json()
-          setSessions(body.sessions ?? [])
-        } catch {
-          // The session tray is an affordance, not a requirement.
-        }
-      }, [])
 
       useEffect(() => {
         if (notice === undefined) return undefined
@@ -604,7 +597,6 @@ window.__ModuleLoader__.load({
       }, [notice])
 
       useEffect(() => { void loadList() }, [loadList])
-      useEffect(() => { void loadSessions() }, [loadSessions])
 
       useEffect(() => {
         if (selectedRole === undefined) {
@@ -649,44 +641,7 @@ window.__ModuleLoader__.load({
         }
       }
 
-      const bindSession = async sessionId => {
-        const current = detail.role
-        if (current === undefined) return
-        setPending(true)
-        setError(undefined)
-        try {
-          const response = await fetch(`${API}/sessions/bind`, {
-            method: 'POST',
-            headers: { 'content-type': 'application/json' },
-            body: JSON.stringify({ sessionId, roleId: current.id }),
-          })
-          const body = await response.json().catch(() => ({}))
-          if (!response.ok) throw new Error(body.message ?? body.error ?? `HTTP ${response.status}`)
-          await Promise.all([loadSessions(), loadDetail(current.id)])
-        } catch (cause) {
-          setError(String(cause?.message ?? cause))
-        } finally {
-          setPending(false)
-        }
-      }
 
-      const unbindSession = async sessionId => {
-        setPending(true)
-        setError(undefined)
-        try {
-          const response = await fetch(`${API}/sessions/unbind`, {
-            method: 'POST',
-            headers: { 'content-type': 'application/json' },
-            body: JSON.stringify({ sessionId }),
-          })
-          if (!response.ok) throw new Error(`HTTP ${response.status}`)
-          await loadSessions()
-        } catch (cause) {
-          setError(String(cause?.message ?? cause))
-        } finally {
-          setPending(false)
-        }
-      }
 
       const createRole = async rawName => {
         const name = rawName.trim()
@@ -819,7 +774,7 @@ window.__ModuleLoader__.load({
           setSelectedRole(undefined)
           setSelectedSkill(undefined)
           setDetail({ status: 'idle' })
-          await Promise.all([loadList(), loadSessions()])
+          await loadList()
         } catch (cause) {
           setError(String(cause?.message ?? cause))
         } finally {
@@ -847,11 +802,6 @@ window.__ModuleLoader__.load({
         const value = payload.slice(separator + 1)
         const onRole = target === '__role__'
 
-        if (kind === 'session') {
-          // A session belongs to a role, not to a skill.
-          if (onRole) void bindSession(value)
-          return
-        }
         if (kind !== 'skill') return
         if (onRole) void send('members', { action: 'add_members', add: [value] })
         // A skill dragged in from the list only adds an edge; migrating an
@@ -1046,35 +996,6 @@ window.__ModuleLoader__.load({
               ? h('div', { key: 'meta', style: { ...styles.meta, marginTop: 6 } },
                 `revision ${role.revision} · 闭包 ${plan.closure.length} · 约 ${plan.catalogChars} 字符`)
               : null,
-            h('div', { key: 'sessions-title', style: { ...styles.sectionTitle, marginTop: 10 } }, `会话 · ${sessions.length}`),
-            h('div', { key: 'sessions', style: { maxHeight: 130, overflowY: 'auto', marginTop: 2 } }, sessions.map(session => h('div', {
-              key: session.sessionId,
-              draggable: true,
-              onDragStart: event => {
-                event.dataTransfer.setData('text/plain', `session:${session.sessionId}`)
-                event.dataTransfer.effectAllowed = 'link'
-              },
-              style: { ...styles.item(false), cursor: 'grab' },
-              title: '拖到角色节点即可绑定该会话',
-            }, [
-              h('div', { key: 'n', style: styles.itemName }, session.sessionId.slice(0, 8)),
-              h('div', { key: 'm', style: styles.meta },
-                roleReady && session.roleId === role?.id
-                  ? '已绑定本角色'
-                  : session.roleId !== undefined && session.roleId !== null ? '已绑定其他角色' : '未绑定'),
-              session.roleId === undefined || session.roleId === null
-                ? null
-                : h('button', {
-                    key: 'x',
-                    style: { ...styles.button(!pending), marginLeft: 'auto', height: 18, padding: '0 6px' },
-                    disabled: pending,
-                    title: '解除该会话的绑定',
-                    onClick: event => {
-                      event.stopPropagation()
-                      void unbindSession(session.sessionId)
-                    },
-                  }, '解绑'),
-            ]))),
           ]),
         ]),
 
@@ -1278,6 +1199,86 @@ window.__ModuleLoader__.load({
       return 'dsh-resource://file/absolute/' + segments.join('/')
     }
 
+    /** Role selector for the New Session row, next to the workspace and preset controls. */
+    function RoleOption(props) {
+      const sessionId = props?.sessionId
+      const [roles, setRoles] = useState([])
+      const [bound, setBound] = useState(undefined)
+      const [open, setOpen] = useState(false)
+      const [busy, setBusy] = useState(false)
+      const [failed, setFailed] = useState(undefined)
+
+      useEffect(() => {
+        let alive = true
+        const load = async () => {
+          try {
+            const [rolesResponse, sessionsResponse] = await Promise.all([
+              fetch('/skill-loom/roles', { headers: { accept: 'application/json' } }),
+              fetch('/skill-loom/sessions', { headers: { accept: 'application/json' } }),
+            ])
+            const rolesBody = rolesResponse.ok ? await rolesResponse.json() : { roles: [] }
+            const sessionsBody = sessionsResponse.ok ? await sessionsResponse.json() : { sessions: [] }
+            if (!alive) return
+            setRoles(Array.isArray(rolesBody.roles) ? rolesBody.roles : [])
+            const mine = (sessionsBody.sessions ?? []).find(row => row.sessionId === sessionId)
+            setBound(mine?.roleId ?? undefined)
+          } catch (cause) {
+            if (alive) setFailed(String(cause?.message ?? cause))
+          }
+        }
+        void load()
+        return () => { alive = false }
+      }, [sessionId])
+
+      const choose = async roleId => {
+        if (sessionId === undefined) return
+        setBusy(true)
+        setFailed(undefined)
+        try {
+          const url = roleId === undefined ? '/skill-loom/sessions/unbind' : '/skill-loom/sessions/bind'
+          const payload = roleId === undefined ? { sessionId } : { sessionId, roleId }
+          const response = await fetch(url, {
+            method: 'POST',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify(payload),
+          })
+          if (!response.ok) {
+            const text = await response.text()
+            throw new Error('HTTP ' + response.status + ' ' + text.slice(0, 120))
+          }
+          setBound(roleId)
+          setOpen(false)
+        } catch (cause) {
+          setFailed(String(cause?.message ?? cause))
+        } finally {
+          setBusy(false)
+        }
+      }
+
+      const current = roles.find(role => role.id === bound)
+      return h('span', { style: { position: 'relative', display: 'inline-flex' } }, [
+        h('style', { key: 'css' }, MENU_CSS),
+        h('button', {
+          key: 'trigger',
+          className: 'loom-option',
+          disabled: busy,
+          title: failed ?? '这个会话以哪个角色的技能集运行',
+          onClick: () => setOpen(value => !value),
+        }, '角色：' + (current?.name ?? '默认') + ' ▾'),
+        open
+          ? h('div', { key: 'menu', className: 'loom-menu loom-menu--float', style: { left: 'auto', right: 0, width: 200 } }, [
+            h('div', { key: 'none', className: 'loom-menu-item', onClick: () => void choose(undefined) }, '默认（全部技能）'),
+            ...roles.map(role => h('div', {
+              key: role.id,
+              className: 'loom-menu-item',
+              title: role.name,
+              onClick: () => void choose(role.id),
+            }, role.name)),
+          ])
+          : null,
+      ])
+    }
+
     function TabRolePanel() {
       return h(RolePage, { compact: true })
     }
@@ -1298,6 +1299,12 @@ window.__ModuleLoader__.load({
           name: 'main',
           key: 'skill-loom',
         }, RolePage))
+        // Sits at the right end of the New Session row, after workspace and preset.
+        ctx.slots.inject('conversation.hero.options', () => ctx.slots.register({
+          name: 'conversation.hero.options',
+          id: 'skill-loom-role',
+          order: 50,
+        }, RoleOption))
 
         // The right sidebar keeps the conversation visible, which is the whole
         // point of a second surface. The services can arrive after this module
