@@ -70,6 +70,9 @@ export function apply(ctx, config = {}) {
   const bindings = new BindingStore(bindingsFileFor(rolesDir))
   /** @type {Map<string, { dispose: () => void }>} */
   const generations = new Map()
+  // Capture services once: after unload the context is inactive and even
+  // ctx.logger may throw on access.
+  const logger = ctx.logger
   let rebuildTimer
   // Timers outlive Cordis contexts. Everything scheduled off a timer must check
   // this flag before touching a service, or it will throw into an inactive
@@ -233,7 +236,7 @@ export function apply(ctx, config = {}) {
     try {
       await install(agent, sessionId, role)
     } catch (error) {
-      ctx.logger?.warn?.(`skill-loom: could not install role "${role.name}" for ${sessionId}: ${String(error)}`)
+      logger?.warn?.(`skill-loom: could not install role "${role.name}" for ${sessionId}: ${String(error)}`)
     }
   })
 
@@ -254,11 +257,11 @@ export function apply(ctx, config = {}) {
           boundRoleFor: sessionId => boundRole(sessionId),
           installRoleFor: (agent, sessionId, role) => install(agent, sessionId, role),
           onError: (error, sessionId) => {
-            ctx.logger?.warn?.(`skill-loom: could not restore the role of ${sessionId}: ${String(error)}`)
+            logger?.warn?.(`skill-loom: could not restore the role of ${sessionId}: ${String(error)}`)
           },
         })
       } catch (error) {
-        ctx.logger?.warn?.(`skill-loom: restoring bound roles failed: ${String(error)}`)
+        logger?.warn?.(`skill-loom: restoring bound roles failed: ${String(error)}`)
       }
     })()
     return () => {
@@ -297,7 +300,7 @@ export function apply(ctx, config = {}) {
           }
         } catch (error) {
           // A rebuild must never escape into the timer.
-          ctx.logger?.warn?.(`skill-loom: rebuild after skills/change failed: ${String(error)}`)
+          logger?.warn?.(`skill-loom: rebuild after skills/change failed: ${String(error)}`)
         }
       })()
     }, 250)
