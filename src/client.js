@@ -123,11 +123,13 @@ window.__ModuleLoader__.load({
       return { width, height, positions, roleLevel }
     }
 
-    function Graph({ role, plan, selected, onSelect, onCreateEdge, onDropOnNode }) {
+    function Graph({ role, plan, selected, onSelect, onCreateEdge, onRemoveEdge, onDropOnNode }) {
       const geom = useMemo(() => layout(role, plan), [role, plan])
       const svgRef = useRef(undefined)
       const [drag, setDrag] = useState(undefined)
       const [dropTarget, setDropTarget] = useState(undefined)
+      // Dragging an edge by its midpoint detaches it; releasing anywhere removes it.
+      const [edgeDrag, setEdgeDrag] = useState(undefined)
 
       const red = new Set(plan.red ?? [])
       const gray = new Set((plan.gray ?? []).map(row => row.name))
@@ -147,6 +149,14 @@ window.__ModuleLoader__.load({
         return undefined
       }
 
+      const beginEdgeDrag = (index, edge) => event => {
+        if (event.button !== 0) return
+        event.stopPropagation()
+        svgRef.current?.setPointerCapture?.(event.pointerId)
+        const point = pointOf(event)
+        setEdgeDrag({ index, edge, ox: point.x, oy: point.y, x: point.x, y: point.y, moved: false })
+      }
+
       const beginLink = name => event => {
         if (event.button !== 0) return
         event.stopPropagation()
@@ -155,12 +165,23 @@ window.__ModuleLoader__.load({
         setDrag({ from: name, ox: point.x, oy: point.y, x: point.x, y: point.y, moved: false })
       }
       const moveLink = event => {
-        if (drag === undefined) return
         const point = pointOf(event)
+        if (edgeDrag !== undefined) {
+          const moved = edgeDrag.moved || Math.abs(point.x - edgeDrag.ox) + Math.abs(point.y - edgeDrag.oy) > 6
+          setEdgeDrag({ ...edgeDrag, x: point.x, y: point.y, moved })
+          return
+        }
+        if (drag === undefined) return
         const moved = drag.moved || Math.abs(point.x - drag.ox) + Math.abs(point.y - drag.oy) > 6
         setDrag({ ...drag, x: point.x, y: point.y, moved })
       }
       const endLink = event => {
+        if (edgeDrag !== undefined) {
+          svgRef.current?.releasePointerCapture?.(event.pointerId)
+          if (edgeDrag.moved) onRemoveEdge(edgeDrag.edge)
+          setEdgeDrag(undefined)
+          return
+        }
         if (drag === undefined) return
         svgRef.current?.releasePointerCapture?.(event.pointerId)
         const point = pointOf(event)
@@ -186,7 +207,12 @@ window.__ModuleLoader__.load({
         const fromY = b.y < a.y ? a.y - NODE_H : a.y
         const toY = b.y < a.y ? b.y : b.y - NODE_H
         const mid = (fromY + toY) / 2
-        return `M ${a.x} ${fromY} C ${a.x} ${mid}, ${b.x} ${mid}, ${b.x} ${toY}`
+        return {
+          d: `M ${a.x} ${fromY} C ${a.x} ${mid}, ${b.x} ${mid}, ${b.x} ${toY}`,
+          from: { x: a.x, y: fromY },
+          to: { x: b.x, y: toY },
+          mid: { x: (a.x + b.x) / 2, y: (fromY + toY) / 2 },
+        }
       }
 
       const nodes = [{ name: '__role__', label: role.name, kind: 'role' },
@@ -212,17 +238,31 @@ window.__ModuleLoader__.load({
       }, h('path', { d: 'M0,0 L8,4 L0,8 z', fill: 'currentColor', opacity: 0.55 }))),
 
       edges.map((edge, index) => {
-        const d = pathOf(edge)
-        if (d === undefined) return null
-        return h('path', {
-          key: `e${index}`,
-          d,
-          fill: 'none',
-          stroke: 'currentColor',
-          strokeOpacity: edge.include ? 0.22 : 0.5,
-          strokeWidth: 1.4,
-          strokeDasharray: edge.include ? '4 3' : undefined,
-        })
+        const route = pathOf(edge)
+        if (route === undefined) return null
+        const dragging = edgeDrag !== undefined && edgeDrag.index === index && edgeDrag.moved
+        return h('g', { key: `e${index}` },
+          h('path', {
+            d: dragging ? `M ${route.from.x} ${route.from.y} L ${edgeDrag.x} ${edgeDrag.y}` : route.d,
+            fill: 'none',
+            stroke: dragging ? COLORS.red : 'currentColor',
+            strokeOpacity: dragging ? 0.9 : edge.include ? 0.22 : 0.5,
+            strokeWidth: dragging ? 1.8 : 1.4,
+            strokeDasharray: edge.include || dragging ? '4 3' : undefined,
+          }),
+          // Only a real dependency can be detached; an include line is membership.
+          edge.include || dragging
+            ? null
+            : h('circle', {
+                cx: route.mid.x,
+                cy: route.mid.y,
+                r: 7,
+                fill: 'transparent',
+                stroke: 'currentColor',
+                strokeOpacity: 0.16,
+                style: { cursor: 'grab' },
+                onPointerDown: beginEdgeDrag(index, edge),
+              }))
       }),
 
       drag !== undefined && drag.moved && sourcePos !== undefined
@@ -518,6 +558,7 @@ window.__ModuleLoader__.load({
                     else void send('edges', { action: 'link', from, to })
                   },
                   onDropOnNode: dropOnNode,
+                  onRemoveEdge: edge => void send('edges', { action: 'unlink', from: edge.from, to: edge.to }),
                 })
               : h('div', { key: 'empty', style: { ...styles.empty, padding: 24 } },
                 detail.status === 'error' ? detail.error
