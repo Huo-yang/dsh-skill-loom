@@ -13,6 +13,11 @@
 - 运行时应用：按角色在 agent 作用域注册同名影子（两个调用开关均关闭）与 persona 段，会话绑定持久化在 `roles/bindings.json`，技能目录变化时防抖重建。
 - English: role graph model, DAG semantics with cascading exclusion, skill anchors for missing-skill explanation, per-role atomic storage with revisions, and the `role_graph` tool.
 
+### 修复 / Fixed
+
+- 插件卸载后防抖定时器仍访问宿主服务，导致 `fatal load failure`。现在定时器与事件回调都带存活检查，异常不再逃逸到事件循环。
+- 绑定文件曾写到 `$DSH_HOME/bindings.json`，已改为 `$DSH_HOME/roles/bindings.json`。
+
 ### 说明 / Notes
 
 - M1 与 M2 运行时已在真实 DSH 0.2.2-rc.5 验证：绑定后宿主目录清空、解绑后恢复。
