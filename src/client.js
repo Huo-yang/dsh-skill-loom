@@ -16,7 +16,7 @@ window.__ModuleLoader__.load({
     const styles = {
       stage: { position: 'relative', height: '100%', minHeight: 0, font: 'inherit', color: 'inherit', overflow: 'hidden' },
       canvasFill: {
-        position: 'absolute', inset: 0, overflow: 'auto',
+        position: 'absolute', inset: 0, overflow: 'hidden',
         background: 'linear-gradient(rgba(0,0,0,.025), rgba(0,0,0,.025)), var(--dsw-alias-bg-base, #ffffff)',
       },
       roleCard: {
@@ -239,6 +239,39 @@ window.__ModuleLoader__.load({
         }
       }
 
+      // Right-drag pans the canvas. Scroll offsets are used rather than a CSS
+      // transform so the browser keeps its scrollbars and wheel scrolling intact.
+      const canvasRef = useRef(undefined)
+      const panRef = useRef(undefined)
+      const [panning, setPanning] = useState(false)
+      const [pan, setPan] = useState({ x: 0, y: 0 })
+
+      const startPan = event => {
+        if (event.button !== 2) return
+        const element = canvasRef.current
+        if (element === undefined) return
+        event.preventDefault()
+        panRef.current = {
+          x: event.clientX,
+          y: event.clientY,
+          px: pan.x,
+          py: pan.y,
+        }
+        element.setPointerCapture?.(event.pointerId)
+        setPanning(true)
+      }
+      const movePan = event => {
+        const start = panRef.current
+        if (start === undefined) return
+        setPan({ x: start.px + (event.clientX - start.x), y: start.py + (event.clientY - start.y) })
+      }
+      const endPan = event => {
+        if (panRef.current === undefined) return
+        panRef.current = undefined
+        setPanning(false)
+        canvasRef.current?.releasePointerCapture?.(event.pointerId)
+      }
+
       const loadList = useCallback(async () => {
         try {
           const response = await fetch(`${API}/roles`, { headers: { accept: 'application/json' } })
@@ -310,15 +343,34 @@ window.__ModuleLoader__.load({
       const filtered = list.skills.filter(skill => filter === '' || skill.name.includes(filter))
 
       return h('div', { style: styles.stage },
-        h('div', { style: panelOpen ? { ...styles.canvasFill, paddingRight: 356 } : styles.canvasFill },
-          roleReady
-            ? h(Graph, { role, plan, selected: selectedSkill, onSelect: setSelectedSkill })
-            : h('div', { style: { ...styles.empty, padding: 24 } },
-              detail.status === 'error' ? detail.error
-                : detail.status === 'loading' ? '加载中…'
-                  : list.status === 'ready' && list.roles.length === 0
-                    ? '还没有角色。让 agent 用 role_graph 建一个，刷新即可看到。'
-                    : '选择一个角色查看依赖图')),
+        h('div', {
+          ref: canvasRef,
+          style: {
+            ...(panelOpen ? { ...styles.canvasFill, paddingRight: 356 } : styles.canvasFill),
+            cursor: panning ? 'grabbing' : 'default',
+          },
+          onPointerDown: startPan,
+          onPointerMove: movePan,
+          onPointerUp: endPan,
+          onPointerCancel: endPan,
+          onContextMenu: event => event.preventDefault(),
+        },
+          h('div', {
+            style: {
+              transform: `translate(${pan.x}px, ${pan.y}px)`,
+              width: 'fit-content',
+              margin: '0 auto',
+            },
+          }, [
+            roleReady
+              ? h(Graph, { key: 'graph', role, plan, selected: selectedSkill, onSelect: setSelectedSkill })
+              : h('div', { key: 'empty', style: { ...styles.empty, padding: 24 } },
+                detail.status === 'error' ? detail.error
+                  : detail.status === 'loading' ? '加载中…'
+                    : list.status === 'ready' && list.roles.length === 0
+                      ? '还没有角色。让 agent 用 role_graph 建一个，刷新即可看到。'
+                      : '选择一个角色查看依赖图'),
+          ])),
 
         h('div', { style: { ...styles.roleCard, left: cardPos.x, top: cardPos.y } },
           h('div', {
