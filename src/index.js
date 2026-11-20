@@ -28,6 +28,7 @@ import { PERSONA_PREFIX_SECTION } from '@deepseek-ai/dsh-system-prompt'
 import { RoleGraphError, createRoleGraphApi } from './api.js'
 import { computeHealth } from './graph.js'
 import { BindingStore, bindingsFileFor } from './bindings.js'
+import { restoreBoundRoles, sessionIdOf } from './lifecycle.js'
 import { installRole } from './runtime.js'
 import { RoleStore } from './store.js'
 
@@ -40,11 +41,6 @@ export const inject = ['tools', 'skills', 'systemPrompt', 'workingDirectory', 'a
 /** Default roles directory, honouring `DSH_HOME`. */
 export function defaultRolesDir() {
   return join(process.env.DSH_HOME ?? join(homedir(), '.dsh'), 'roles')
-}
-
-/** Session identity of an agent. */
-function sessionIdOf(agent) {
-  return agent?.session?.header?.id
 }
 
 const PARAMETERS = {
@@ -75,6 +71,10 @@ export function apply(ctx, config = {}) {
   /** @type {Map<string, { dispose: () => void }>} */
   const generations = new Map()
   let rebuildTimer
+  // Timers outlive Cordis contexts. Everything scheduled off a timer must check
+  // this flag before touching a service, or it will throw into an inactive
+  // context and (because nothing catches a timer callback) take down the host.
+  let active = true
 
   /**
    * The orchestration view: global layer plus this agent's scope.
@@ -225,10 +225,11 @@ export function apply(ctx, config = {}) {
   ctx.tools.register(tool)
 
   ctx.on('agent/created', async ({ agent }) => {
+    if (!active) return
     const sessionId = sessionIdOf(agent)
     if (sessionId === undefined) return
     const role = await boundRole(sessionId)
-    if (role === undefined) return
+    if (!active || role === undefined) return
     try {
       await install(agent, sessionId, role)
     } catch (error) {
@@ -241,28 +242,62 @@ export function apply(ctx, config = {}) {
     if (sessionId !== undefined) disposeSession(sessionId)
   })
 
+  // A reload must not lose roles: existing agents never fire `agent/created`
+  // again, and the previous instance's generation is gone. Restore first, and
+  // release our generations when this instance unloads.
+  ctx.effect(() => {
+    void (async () => {
+      if (!active) return
+      try {
+        await restoreBoundRoles({
+          agents: ctx.agents.list(),
+          boundRoleFor: sessionId => boundRole(sessionId),
+          installRoleFor: (agent, sessionId, role) => install(agent, sessionId, role),
+          onError: (error, sessionId) => {
+            ctx.logger?.warn?.(`skill-loom: could not restore the role of ${sessionId}: ${String(error)}`)
+          },
+        })
+      } catch (error) {
+        ctx.logger?.warn?.(`skill-loom: restoring bound roles failed: ${String(error)}`)
+      }
+    })()
+    return () => {
+      active = false
+      clearTimeout(rebuildTimer)
+      for (const sessionId of [...generations.keys()]) disposeSession(sessionId)
+    }
+  }, 'skill-loom: restore bound roles and release generations')
+
   // Skills appearing or disappearing change what a role must shadow. Rebuilding
   // is debounced so a burst of provider updates costs one pass.
   ctx.on('skills/change', () => {
+    if (!active) return
     clearTimeout(rebuildTimer)
     rebuildTimer = setTimeout(() => {
+      if (!active) return
       void (async () => {
-        for (const sessionId of [...generations.keys()]) {
-          const agent = ctx.agents.get(sessionId)
-          if (agent === undefined) {
-            disposeSession(sessionId)
-            continue
+        try {
+          for (const sessionId of [...generations.keys()]) {
+            if (!active) return
+            const agent = ctx.agents.get(sessionId)
+            if (agent === undefined) {
+              disposeSession(sessionId)
+              continue
+            }
+            const role = await boundRole(sessionId)
+            if (role === undefined) {
+              disposeSession(sessionId)
+              continue
+            }
+            try {
+              await install(agent, sessionId, role)
+            } catch {
+              // Keep the previous generation if the rebuild fails.
+            }
           }
-          const role = await boundRole(sessionId)
-          if (role === undefined) {
-            disposeSession(sessionId)
-            continue
-          }
-          try {
-            await install(agent, sessionId, role)
-          } catch {
-            // Keep the previous generation if the rebuild fails.
-          }
+        } catch (error) {
+          // A rebuild must never escape into the timer.
+          ctx.logger?.warn?.(`skill-loom: rebuild after skills/change failed: ${String(error)}`)
         }
       })()
     }, 250)
