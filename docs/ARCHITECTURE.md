@@ -1,6 +1,6 @@
 # dsh-skill-loom 架构设计
 
-> 状态：**v2.3（M1 验证通过；M2 运行时已实现，90 条测试）**
+> 状态：**v2.4（M1 + M2 运行时已在真实宿主验证，91 条测试）**
 > 设计核对版本：DSH Web `0.2.2-rc.5`
 > 一句话：**一个角色 = 一张图 = 一个文件**；技能是节点，连线是依赖；agent 与人共用同一张图的读写面。
 
@@ -612,6 +612,24 @@ client 半需要读图、读仓库、写图，但正文未定义接口。补齐�
 2. **`topoLevels` 在无边时返回空表**。只遍历了有出边的节点，成员节点不在结果里。修复：遍历闭包。
 
 另一条运维结论：**改动已加载插件的代码后，`disable` + `enable` 可以让宿主重新导入**（不必重启整个 DSH）；仅改数据或文档则无需任何操作。
+
+### M2 运行时验证（同日）
+
+用一个 `members: []` 的临时角色绑定**当前会话**，宿主随即发出替换目录消息、`<available_skills>` 为空——7 个技能全部被影子覆盖，`shadowed: 7`。随后 `unbind`，宿主再次发出替换目录，7 个技能全部恢复。**两个方向都由宿主自己的目录消息证实**，不是插件自述。
+
+同一轮发现并修复的第三个问题：绑定写到了 `~/.dsh/bindings.json`，而设计是 `~/.dsh/roles/bindings.json`（`dirname(rolesDir)` 多退了一层）。修复后路径抽成 `bindingsFileFor()` 并加了测试。
+
+锚点的三种真实形态也在同一轮采集到：
+
+| 技能 | source | provider | path |
+|---|---|---|---|
+| `office` / `office-docx` … | `bundled` | `dsh-office` | 无（provider 虚拟技能） |
+| `dsh-doc` | `custom` | `filesystem` | 有（预设通过 `customSkillDirs` 挂载） |
+| `ssh-operator` | `bundled` | `runtime` | 有（插件运行时注册） |
+
+这三种形态决定了锚点必须是 `{path?, source?, provider?}` 三元组：任何单一字段都会在某一类技能上失效。
+
+**尚未在真实宿主验证**：新会话的 `agent/created` 自动安装（本轮是会话内 `bind` 触发）。代码路径与 `bind` 共用同一个 `install()`，但事件时序只在新建会话时才会走到。
 ---
 
 ## 14. 运行时的实现细节（M2）
