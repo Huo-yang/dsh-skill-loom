@@ -728,7 +728,7 @@ window.__ModuleLoader__.load({
                     // skill"; skill-to-skill means "requires".
                     if (from === '__role__') void send('members', { action: 'add_members', add: [to] })
                     else if (to === '__role__') void send('members', { action: 'add_members', add: [from] })
-                    else void send('edges', { action: 'reparent', from, to }, '已把 ' + from + ' 的依赖迁移到 ' + to)
+                    else void send('edges', { action: 'reparent', from, to }, '已清空 ' + from + ' 原有依赖，改为仅依赖 ' + to)
                   },
                   onDropOnNode: dropOnNode,
                   onRemoveEdge: edge => void send('edges', { action: 'unlink', from: edge.from, to: edge.to }),

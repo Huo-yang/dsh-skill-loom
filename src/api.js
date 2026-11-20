@@ -254,10 +254,9 @@ export function createRoleGraphApi(deps) {
         break
       }
       case 'reparent': {
-        // Dragging X onto Y splices Y between X and everything X required: the
-        // old dependencies move to Y, and X keeps a single edge to Y. X itself
-        // stays where it was, so anything depending on X now reaches the old
-        // dependencies through the new hop.
+        // Dragging X onto Y rewires X: its previous dependencies are cleared and
+        // X depends on Y alone. This is deliberately different from link, which
+        // adds an edge and leaves the rest of the graph untouched.
         if (typeof input.from !== 'string' || typeof input.to !== 'string') {
           throw new RoleGraphError('INVALID_EDGE', 'reparent needs both "from" and "to"')
         }
@@ -268,22 +267,11 @@ export function createRoleGraphApi(deps) {
         }
         if (why.length > 80) throw new RoleGraphError('WHY_TOO_LONG', 'why must be 80 characters or fewer')
 
-        const current = next.edges ?? []
-        const moving = current.filter(edge => edge.from === input.from)
-        const kept = current.filter(edge => edge.from !== input.from)
-        const inherited = moving
-          .filter(edge => edge.to !== input.to)
-          .map(edge => ({ from: input.to, to: edge.to, ...(edge.why === undefined ? {} : { why: edge.why }) }))
-
-        const merged = []
-        const seen = new Set()
-        for (const edge of [...kept, ...inherited, { from: input.from, to: input.to, ...(why === '' ? {} : { why }) }]) {
-          const key = edge.from + '\u0000' + edge.to
-          if (seen.has(key)) continue
-          seen.add(key)
-          merged.push(edge)
-        }
-        next.edges = merged
+        // Replace, do not extend: every outgoing edge of `from` is dropped and a
+        // single edge to `to` takes its place. Nothing is inherited, so the result
+        // is fully determined by the drag itself.
+        const kept = (next.edges ?? []).filter(edge => edge.from !== input.from)
+        next.edges = [...kept, { from: input.from, to: input.to, ...(why === '' ? {} : { why }) }]
         break
       }
       case 'link': {

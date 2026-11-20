@@ -310,9 +310,9 @@ test('linking a non-member onto a member pulls the source into members', async (
   assert.deepEqual([...linked.result.role.members].sort(), ['a', 'b'])
 })
 
-test('reparent splices the target between a skill and its dependencies', async () => {
-  // office -> dsh-doc -> (a, b); dragging dsh-doc onto c should yield
-  // office -> dsh-doc -> c -> (a, b).
+test('reparent replaces the outgoing edges of the dragged skill', async () => {
+  // office -> dsh-doc -> (a, b); dragging dsh-doc onto c leaves
+  // office -> dsh-doc -> c and nothing else from dsh-doc.
   const handler = api()
   const created = await handler.handle({ action: 'create', name: 'r', add: ['a', 'b', 'c'] })
   const id = created.result.role.id
@@ -325,7 +325,7 @@ test('reparent splices the target between a skill and its dependencies', async (
     { source: 'human' },
   )
   const edges = reparented.result.role.edges.map(edge => `${edge.from}->${edge.to}`).sort()
-  assert.deepEqual(edges, ['c->a', 'c->b', 'dsh-doc->c', 'office->dsh-doc'])
+  assert.deepEqual(edges, ['dsh-doc->c', 'office->dsh-doc'])
 })
 
 test('reparent keeps a single edge when the target was already a dependency', async () => {
