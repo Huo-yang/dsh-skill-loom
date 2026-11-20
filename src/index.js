@@ -51,15 +51,15 @@ const PARAMETERS = {
   action: {
     type: 'string',
     required: true,
-    description: 'help | list | show | plan | create | set_name | set_persona | add_members | remove_members | link | unlink | duplicate | bind | unbind',
+    description: 'help | list | show | plan | create | set_name | set_persona | add_members | remove_members | link | unlink | reparent | duplicate | bind | unbind',
   },
   role: { type: 'string', description: 'Role UUID or display name.' },
   name: { type: 'string', description: 'Display name (create, set_name, duplicate). Any script, <= 64 chars.' },
   persona: { type: 'string', description: 'Persona prefix for set_persona / create.' },
   add: { type: 'array', items: { type: 'string' }, description: 'Skill names to add (add_members, plan).' },
   remove: { type: 'array', items: { type: 'string' }, description: 'Skill names to remove (remove_members, plan).' },
-  from: { type: 'string', description: 'Requiring skill (link, unlink).' },
-  to: { type: 'string', description: 'Required skill (link, unlink).' },
+  from: { type: 'string', description: 'Requiring skill (link, unlink, reparent).' },
+  to: { type: 'string', description: 'Required skill (link, unlink, reparent).' },
   why: { type: 'string', description: 'Why the edge exists. Required for agent-created edges, <= 80 chars.' },
 }
 
