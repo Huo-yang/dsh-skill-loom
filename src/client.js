@@ -886,7 +886,13 @@ window.__ModuleLoader__.load({
           }
       const listStyle = styles.skillScroll
 
-      return h('div', { style: stageStyle },
+      return h('div', {
+        style: stageStyle,
+        // A drag that ends anywhere but a node must not fall back to the browser's
+        // default drop action (which is what shows the search-the-web prompt).
+        onDragOver: event => event.preventDefault(),
+        onDrop: event => event.preventDefault(),
+      },
         h('div', {
           ref: canvasRef,
           style: {
@@ -899,6 +905,8 @@ window.__ModuleLoader__.load({
           onPointerCancel: endPan,
           onSelectStart: event => event.preventDefault(),
           onDragStart: event => event.preventDefault(),
+          onDragOver: event => event.preventDefault(),
+          onDrop: event => event.preventDefault(),
         }, [
           h('div', {
             style: {
