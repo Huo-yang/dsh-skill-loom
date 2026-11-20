@@ -328,6 +328,18 @@ window.__ModuleLoader__.load({
       }),
 
 
+      drag !== undefined && drag.mode === 'add' && drag.moved && sourcePos !== undefined
+        ? h('line', {
+            x1: sourcePos.x + NODE_W / 2,
+            y1: sourcePos.y - NODE_H / 2,
+            x2: drag.x,
+            y2: drag.y,
+            stroke: 'currentColor',
+            strokeOpacity: 0.65,
+            strokeWidth: 1.4,
+          })
+        : null,
+
       nodes.map(node => {
         const position = geom.positions.get(node.name)
         if (position === undefined) return null
@@ -395,22 +407,7 @@ window.__ModuleLoader__.load({
               strokeWidth: 1.2,
               style: { cursor: 'crosshair' },
               onPointerDown: beginDrag(node.name, 'add'),
-            }, h('title', null, '拖出以新增一条依赖（保留原有依赖）')),            node.kind === 'role' ? null : h('g', {
-              key: 'grip',
-              onPointerDown: beginDrag(node.name, 'replace'),
-              style: { cursor: 'grab' },
-            }, [
-              h('title', { key: 'tip' }, '拖动握把搬走节点，放到删除区即移除'),
-              h('circle', {
-                key: 'knob', cx: -9, cy: NODE_H / 2, r: 7,
-                fill: 'var(--dsw-alias-bg-layer-2, #ffffff)',
-                stroke: 'currentColor', strokeOpacity: 0.35, strokeWidth: 1,
-              }),
-              h('circle', { key: 'd1', cx: -9, cy: NODE_H / 2 - 3.2, r: 1.3, fill: 'currentColor', fillOpacity: 0.45 }),
-              h('circle', { key: 'd2', cx: -9, cy: NODE_H / 2, r: 1.3, fill: 'currentColor', fillOpacity: 0.45 }),
-              h('circle', { key: 'd3', cx: -9, cy: NODE_H / 2 + 3.2, r: 1.3, fill: 'currentColor', fillOpacity: 0.45 }),
-            ]),
-          ]),
+            }, h('title', null, '拖出以新增一条依赖（保留原有依赖）')),          ]),
         ])
       }))
     }
