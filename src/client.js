@@ -268,7 +268,16 @@ window.__ModuleLoader__.load({
       const movePan = event => {
         const start = panRef.current
         if (start === undefined) return
-        setPan({ x: start.px + (event.clientX - start.x), y: start.py + (event.clientY - start.y) })
+        const element = canvasRef.current
+        // Bound the pan to a fraction of the viewport: the graph can be pushed
+        // aside but never dragged out of reach.
+        const maxX = element === undefined ? 0 : element.clientWidth * 0.6
+        const maxY = element === undefined ? 0 : element.clientHeight * 0.6
+        const clamp = (value, max) => Math.max(-max, Math.min(max, value))
+        setPan({
+          x: clamp(start.px + (event.clientX - start.x), maxX),
+          y: clamp(start.py + (event.clientY - start.y), maxY),
+        })
       }
       const endPan = event => {
         if (panRef.current === undefined) return
@@ -400,7 +409,12 @@ window.__ModuleLoader__.load({
           h('button', {
             style: { ...styles.button(!panelOpen), marginLeft: 0, marginTop: 8 },
             onClick: () => setPanelOpen(open => !open),
-          }, panelOpen ? '收起面板' : '展开面板')),
+          }, panelOpen ? '收起面板' : '展开面板'),
+          h('button', {
+            style: { ...styles.button(true), marginLeft: 0, marginTop: 6 },
+            onClick: () => setPan({ x: 0, y: 0 }),
+            title: '把画布移回中心',
+          }, '视图复位')),
 
         panelOpen && roleReady
           ? h('div', { style: styles.panel },
