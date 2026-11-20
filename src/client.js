@@ -740,8 +740,13 @@ window.__ModuleLoader__.load({
                   onCreateEdge: (from, to, mode) => {
                     // Either direction against the role node means "include this
                     // skill"; skill-to-skill means "requires".
-                    if (from === '__role__') void send('members', { action: 'add_members', add: [to] })
-                    else if (to === '__role__') void send('members', { action: 'add_members', add: [from] })
+                    if (from === '__role__') void send('members', { action: 'add_members', add: [to] }, '已纳入 ' + to)
+                    else if (to === '__role__') {
+                      // Every drawn node is already a member, so this can only be a
+                      // no-op; say so instead of failing silently.
+                      if ((plan.members ?? []).includes(from)) setNotice(from + ' 已在角色中')
+                      else void send('members', { action: 'add_members', add: [from] }, '已纳入 ' + from)
+                    }
                     else if (mode === 'add') void send('edges', { action: 'link', from, to }, '已新增依赖：' + from + ' → ' + to)
                     else void send('edges', { action: 'reparent', from, to }, '已清空 ' + from + ' 原有依赖，改为仅依赖 ' + to)
                   },
