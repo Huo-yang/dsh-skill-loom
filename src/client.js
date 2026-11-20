@@ -126,7 +126,38 @@ window.__ModuleLoader__.load({
       }
       const maxLevel = members.reduce((max, name) => Math.max(max, levels[name] ?? 0), 0)
       const roleLevel = maxLevel + 1
-      const perRow = Math.max(1, ...[...rows.values()].map(row => row.length), 1)
+
+      // Crossing reduction: order each row by the average position of its
+      // neighbours in the other rows (barycenter heuristic), sweeping down then
+      // up a few times. Without this the order is the member array order, so edges
+      // cross for no reason the reader can see.
+      const neighbours = new Map(members.map(name => [name, []]))
+      for (const edge of role.edges ?? []) {
+        if (!neighbours.has(edge.from) || !neighbours.has(edge.to)) continue
+        neighbours.get(edge.from).push(edge.to)
+        neighbours.get(edge.to).push(edge.from)
+      }
+      const order = new Map([...rows].map(([level, row]) => [level, [...row]]))
+      const indexIn = name => {
+        const row = order.get(levels[name] ?? 0) ?? []
+        return row.indexOf(name)
+      }
+      for (let pass = 0; pass < 4; pass += 1) {
+        const descending = pass % 2 === 1
+        const levelList = [...order.keys()].sort((a, b) => (descending ? b - a : a - b))
+        for (const level of levelList) {
+          const row = order.get(level)
+          const weight = name => {
+            const linked = neighbours.get(name).filter(other => (levels[other] ?? 0) !== level)
+            if (linked.length === 0) return row.indexOf(name)
+            const total = linked.reduce((sum, other) => sum + indexIn(other), 0)
+            return total / linked.length
+          }
+          order.set(level, [...row].sort((a, b) => weight(a) - weight(b) || row.indexOf(a) - row.indexOf(b)))
+        }
+      }
+
+      const perRow = Math.max(1, ...[...order.values()].map(row => row.length), 1)
 
       const width = Math.max(360, perRow * (NODE_W + GAP_X) + GAP_X)
       const positions = new Map()
@@ -139,7 +170,9 @@ window.__ModuleLoader__.load({
         positions.set(name, { x, y })
       }
       place('__role__', 0, 0, 1)
-      for (const [level, row] of rows) row.forEach((name, index) => place(name, level + 1, index, row.length))
+      for (const [level, row] of [...order].sort((a, b) => a[0] - b[0])) {
+        row.forEach((name, index) => place(name, level + 1, index, row.length))
+      }
 
       const height = (maxLevel + 2) * ROW_H + NODE_H + 20
       return { width, height, positions, roleLevel }
