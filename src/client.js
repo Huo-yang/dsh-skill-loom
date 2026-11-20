@@ -145,7 +145,7 @@ window.__ModuleLoader__.load({
       return { width, height, positions, roleLevel }
     }
 
-    function Graph({ role, plan, selected, onSelect, onCreateEdge, onRemoveEdge, onRemovalDrag, onRemoveDrop, onDropOnNode, onDropMissed }) {
+    function Graph({ role, plan, selected, onSelect, onCreateEdge, onRemoveEdge, onRemovalDrag, onRemoveDrop, onDropOnNode, onDropMissed, onGrab }) {
       const geom = useMemo(() => layout(role, plan), [role, plan])
       const svgRef = useRef(undefined)
       const [drag, setDrag] = useState(undefined)
@@ -372,7 +372,7 @@ window.__ModuleLoader__.load({
             key: 'node',
             transform: `translate(${position.x - NODE_W / 2 + ghost.dx}, ${position.y - NODE_H + ghost.dy})`,
             opacity: ghosting ? 0.85 : 1,
-            onPointerDown: beginDrag(node.name, 'replace'),
+            onPointerDown: node.kind === 'role' ? onGrab : beginDrag(node.name, 'replace'),
             onPointerEnter: () => setHovered(node.name),
             onPointerLeave: () => setHovered(current => (current === node.name ? undefined : current)),
             style: { cursor: 'grab' },
@@ -478,10 +478,7 @@ window.__ModuleLoader__.load({
       const [panning, setPanning] = useState(false)
       const [pan, setPan] = useState({ x: 0, y: 0 })
 
-      const startPan = event => {
-        // Middle drag only: browsers (and some trackpad drivers) claim the right
-        // button for their own gestures, so panning on right-drag collides.
-        if (event.button !== 1) return
+      const beginPan = event => {
         const element = canvasRef.current
         if (element === undefined) return
         event.preventDefault()
@@ -493,6 +490,12 @@ window.__ModuleLoader__.load({
         }
         element.setPointerCapture?.(event.pointerId)
         setPanning(true)
+      }
+      const startPan = event => {
+        // Middle drag only: browsers (and some trackpad drivers) claim the right
+        // button for their own gestures, so panning on right-drag collides.
+        if (event.button !== 1) return
+        beginPan(event)
       }
       const movePan = event => {
         const start = panRef.current
@@ -821,6 +824,7 @@ window.__ModuleLoader__.load({
                   onRemovalDrag: setRemovalActive,
                   onRemoveDrop: dropToRemove,
                   onDropMissed: from => setNotice('松手时不在任何节点上，未建立依赖：' + from),
+                  onGrab: beginPan,
                 })
               : h('div', { key: 'empty', style: { ...styles.empty, padding: 24 } },
                 detail.status === 'error' ? detail.error
