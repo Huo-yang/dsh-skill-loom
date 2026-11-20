@@ -250,9 +250,9 @@ window.__ModuleLoader__.load({
       const [pan, setPan] = useState({ x: 0, y: 0 })
 
       const startPan = event => {
-        // Right drag pans; middle drag is the fallback for browsers that claim
-        // the right button for their own menu.
-        if (event.button !== 2 && event.button !== 1) return
+        // Middle drag only: browsers (and some trackpad drivers) claim the right
+        // button for their own gestures, so panning on right-drag collides.
+        if (event.button !== 1) return
         const element = canvasRef.current
         if (element === undefined) return
         event.preventDefault()
@@ -358,7 +358,6 @@ window.__ModuleLoader__.load({
           onPointerMove: movePan,
           onPointerUp: endPan,
           onPointerCancel: endPan,
-          onContextMenu: event => event.preventDefault(),
           onSelectStart: event => event.preventDefault(),
           onDragStart: event => event.preventDefault(),
         },
