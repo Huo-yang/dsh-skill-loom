@@ -375,3 +375,41 @@ test('topoLevels covers members that have no edges at all', () => {
   assert.equal(levels.get('a'), 0)
   assert.equal(levels.get('b'), 0)
 })
+test('a node may have unlimited out-edges and unlimited in-edges', () => {
+  const graph = role({
+    members: ['a', 'e', 'f'],
+    edges: [
+      // a fans out to three dependencies
+      { from: 'a', to: 'b' },
+      { from: 'a', to: 'c' },
+      { from: 'a', to: 'd' },
+      // b is required by three different nodes
+      { from: 'e', to: 'b' },
+      { from: 'f', to: 'b' },
+    ],
+  })
+  const closure = requiresClosure(graph)
+  assert.deepEqual([...closure].sort(), ['a', 'b', 'c', 'd', 'e', 'f'])
+
+  const levels = topoLevels(graph)
+  assert.equal(levels.get('b'), 0)
+  assert.equal(levels.get('a'), 1)
+  assert.equal(levels.get('e'), 1)
+  assert.equal(levels.get('f'), 1)
+})
+
+test('one missing dependency greys out every node that requires it', () => {
+  const graph = role({
+    members: ['a', 'e', 'f'],
+    edges: [
+      { from: 'a', to: 'b' },
+      { from: 'a', to: 'c' },
+      { from: 'e', to: 'b' },
+      { from: 'f', to: 'b' },
+    ],
+  })
+  const health = computeHealth(graph, repo('a', 'c', 'e', 'f'))
+  assert.deepEqual(health.red, ['b'])
+  assert.deepEqual(health.gray.map(row => row.name).sort(), ['a', 'e', 'f'])
+  assert.deepEqual(health.runtime, ['c'])
+})
