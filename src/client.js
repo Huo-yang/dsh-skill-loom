@@ -196,8 +196,9 @@ window.__ModuleLoader__.load({
         }
         // Two intents on one canvas: the port adds an edge, the box replaces the
         // existing ones, and the trash zone removes the member.
+        // The trash zone is an affordance for an ongoing drag, so it appears only
+        // after the pointer actually moves (see moveLink), never on a plain click.
         setDrag({ from: name, mode, ox: point.x, oy: point.y, x: point.x, y: point.y, moved: false })
-        if (mode === 'replace') onRemovalDrag(true)
       }
       const moveLink = event => {
         const point = pointOf(event)
@@ -210,6 +211,7 @@ window.__ModuleLoader__.load({
         const moved = drag.moved || Math.abs(point.x - drag.ox) + Math.abs(point.y - drag.oy) > 6
         setDrag({ ...drag, x: point.x, y: point.y, moved })
         setHoverTarget(moved ? nodeAt(point.x, point.y) : undefined)
+        if (moved && drag.mode === 'replace' && !drag.moved) onRemovalDrag(true)
       }
       const endLink = event => {
         if (edgeDrag !== undefined) {
