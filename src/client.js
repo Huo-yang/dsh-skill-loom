@@ -179,12 +179,14 @@ window.__ModuleLoader__.load({
         event.stopPropagation()
         svgRef.current?.setPointerCapture?.(event.pointerId)
         const point = pointOf(event)
-        // The grip carries the box (and feeds the trash zone); the body draws a
-        // connection. Separating by handle keeps one gesture from stealing the
-        // other, without demanding a modifier key.
-        const mode = requested === 'move' && name !== '__role__' ? 'move' : 'link'
-        setDrag({ from: name, mode, ox: point.x, oy: point.y, x: point.x, y: point.y, moved: false })
-        if (mode === 'move') onRemovalDrag(true)
+        if (name === '__role__') {
+          setDrag({ from: name, mode: 'none', ox: point.x, oy: point.y, x: point.x, y: point.y, moved: false })
+          return
+        }
+        // One gesture, two drop targets: a node creates an edge, the trash zone
+        // removes the member. Nothing about the drag itself implies deleting.
+        setDrag({ from: name, mode: 'link', ox: point.x, oy: point.y, x: point.x, y: point.y, moved: false })
+        onRemovalDrag(true)
       }
       const moveLink = event => {
         const point = pointOf(event)
@@ -209,16 +211,10 @@ window.__ModuleLoader__.load({
         const point = pointOf(event)
         const target = nodeAt(point.x, point.y)
         if (drag.moved) {
-          if (drag.mode === 'move') {
-            // Removal happens only inside the drop zone the page shows while this
-            // gesture is active; anywhere else simply returns the node.
-            onRemovalDrag(false)
-            onRemoveDrop(drag.from, event.clientX, event.clientY)
-          } else if (drag.mode === 'link' && target !== undefined && target !== drag.from) {
-            onCreateEdge(drag.from, target)
-          }
+          onRemovalDrag(false)
+          const removed = onRemoveDrop(drag.from, event.clientX, event.clientY) === true
+          if (!removed && target !== undefined && target !== drag.from) onCreateEdge(drag.from, target)
         } else {
-          if (drag.mode === 'move') onRemovalDrag(false)
           onSelect(drag.from === '__role__' ? undefined : drag.from)
         }
         setDrag(undefined)
@@ -323,7 +319,7 @@ window.__ModuleLoader__.load({
       drag !== undefined && drag.moved && drag.mode === 'link' && sourcePos !== undefined
         ? h('line', {
             x1: sourcePos.x, y1: sourcePos.y, x2: drag.x, y2: drag.y,
-            stroke: drag.mode === 'remove' ? COLORS.red : 'currentColor',
+            stroke: 'currentColor',
             strokeOpacity: 0.7, strokeDasharray: '5 4', strokeWidth: 1.4,
           })
         : null,
@@ -334,8 +330,7 @@ window.__ModuleLoader__.load({
         const active = selected === node.name
         const stateColor = node.kind === 'role' ? COLORS.role : colorOf(node.name)
         const isDropTarget = dropTarget === node.name
-        const ghosting = drag !== undefined && drag.from === node.name && drag.mode === 'move'
-        const removing = ghosting && drag.moved
+        const ghosting = drag !== undefined && drag.from === node.name && drag.mode === 'link' && drag.moved
         const ghost = ghosting ? { dx: drag.x - drag.ox, dy: drag.y - drag.oy } : { dx: 0, dy: 0 }
         return h('g', { key: node.name }, [
           // The placeholder stays at the node's original cell while its box is
@@ -352,7 +347,7 @@ window.__ModuleLoader__.load({
           h('g', {
             key: 'node',
             transform: `translate(${position.x - NODE_W / 2 + ghost.dx}, ${position.y - NODE_H + ghost.dy})`,
-            opacity: removing ? 0.7 : 1,
+            opacity: ghosting ? 0.85 : 1,
             onPointerDown: beginLink(node.name, 'link'),
             onPointerEnter: () => setHovered(node.name),
             onPointerLeave: () => setHovered(current => (current === node.name ? undefined : current)),
@@ -374,9 +369,9 @@ window.__ModuleLoader__.load({
               key: 'box',
               width: NODE_W, height: NODE_H, rx: 6,
               fill: 'var(--dsw-alias-bg-layer-1, #ffffff)',
-              stroke: removing ? COLORS.red : isDropTarget || active ? COLORS.role : 'currentColor',
-              strokeOpacity: removing || isDropTarget || active ? 1 : 0.25,
-              strokeWidth: removing || isDropTarget || active ? 2 : 1,
+              stroke: isDropTarget || active ? COLORS.role : 'currentColor',
+              strokeOpacity: isDropTarget || active ? 1 : 0.25,
+              strokeWidth: isDropTarget || active ? 2 : 1,
               strokeDasharray: isDropTarget ? '5 3' : undefined,
             }),
             h('circle', { key: 'dot', cx: 14, cy: NODE_H / 2, r: 4, fill: stateColor }),
@@ -650,12 +645,15 @@ window.__ModuleLoader__.load({
 
       const dropToRemove = (name, clientX, clientY) => {
         // Measure before hiding the zone; the ref is still bound to the element
-        // that the drop landed on.
+        // the drop landed on. Returns whether it consumed the drop, so the caller
+        // can fall back to creating an edge.
         const rect = zoneRef.current?.getBoundingClientRect()
         setRemovalActive(false)
-        if (rect === undefined) return
+        if (rect === undefined) return false
         const inside = clientX >= rect.left && clientX <= rect.right && clientY >= rect.top && clientY <= rect.bottom
-        if (inside) void send('members', { action: 'remove_members', remove: [name] })
+        if (!inside) return false
+        void send('members', { action: 'remove_members', remove: [name] }, '已移除 ' + name)
+        return true
       }
 
       const dropOnNode = (payload, target) => {
