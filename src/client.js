@@ -427,7 +427,6 @@ window.__ModuleLoader__.load({
       const [pending, setPending] = useState(false)
       const [error, setError] = useState(undefined)
       const [filter, setFilter] = useState('')
-      const [linkTarget, setLinkTarget] = useState('')
       const [cardCollapsed, setCardCollapsed] = useState(false)
       const [sessions, setSessions] = useState([])
       const [removalActive, setRemovalActive] = useState(false)
@@ -1019,7 +1018,7 @@ window.__ModuleLoader__.load({
               h('div', { key: 'detail', style: styles.panelBody }, [
                 h(SkillDetail, {
                   role, plan, skills: list.skills, skillName: selectedSkill,
-                  pending, error, linkTarget, setLinkTarget, send,
+                  pending, error, send,
                   onDeleteRole: deleteRole,
                 }),
               ]),
@@ -1027,7 +1026,7 @@ window.__ModuleLoader__.load({
           ])
           : null)
     }
-    function SkillDetail({ role, plan, health, skills, skillName, pending, error, linkTarget, setLinkTarget, send, onDeleteRole }) {
+    function SkillDetail({ role, plan, health, skills, skillName, pending, error, send, onDeleteRole }) {
       const [personaDraft, setPersonaDraft] = useState(role.persona?.prefix ?? '')
       const [confirmDelete, setConfirmDelete] = useState(false)
 
@@ -1085,7 +1084,6 @@ window.__ModuleLoader__.load({
       const info = (skills ?? []).find(skill => skill.name === skillName)
       const outgoing = (role.edges ?? []).filter(edge => edge.from === skillName)
       const incoming = (role.edges ?? []).filter(edge => edge.to === skillName)
-      const candidates = members.filter(name => name !== skillName)
 
       const stateLabel = (plan.red ?? []).includes(skillName)
         ? '缺失（红）'
@@ -1098,63 +1096,26 @@ window.__ModuleLoader__.load({
       if (info?.description) children.push(h('div', { key: 'desc', style: { ...styles.muted, marginTop: 6 } }, info.description))
       if (error !== undefined) children.push(h('div', { key: 'err', style: styles.error }, error))
 
-      children.push(member
-        ? h('div', { key: 'member', style: styles.section },
-            h('button', {
-              style: { ...styles.button(!pending), marginLeft: 0 },
-              disabled: pending,
-              onClick: () => void send('members', { action: 'remove_members', remove: [skillName] }),
-            }, '从角色中移除'))
-        : h('div', { key: 'member', style: styles.section },
-            h('div', { style: styles.empty }, '尚未纳入。拖到角色节点即纳入；拖到某个技能节点，则那个技能依赖它。')))
+      // Read-only: this box reports, it never edits. Membership and edges are
+      // changed on the canvas (drag), which keeps one place responsible per fact.
+      children.push(h('div', { key: 'member', style: styles.section },
+        h('div', { style: styles.empty },
+          member ? '已纳入该角色。' : '尚未纳入。从右侧列表拖入，或拖到角色节点即可纳入。')))
 
       const outgoingRows = outgoing.map((edge, index) => h('div', { key: `o${index}`, style: styles.line }, [
         h('span', { key: 'to', style: styles.mono }, edge.to),
-
         edge.why ? h('span', { key: 'why', style: styles.muted }, edge.why) : null,
-        h('button', {
-          key: 'del',
-          style: styles.button(!pending),
-          disabled: pending,
-          onClick: () => void send('edges', { action: 'unlink', from: edge.from, to: edge.to }),
-        }, '删除'),
       ]))
 
       children.push(h('div', { key: 'out', style: styles.section }, [
         h('div', { key: 'title', style: styles.sectionTitle }, `它依赖 · ${outgoing.length}`),
         outgoing.length === 0 ? h('div', { key: 'none', style: styles.empty }, '没有依赖。') : null,
         ...outgoingRows,
-        h('div', { key: 'add', style: { ...styles.line, borderBottom: 'none', paddingTop: 8 } }, [
-          h('select', {
-            key: 'pick',
-            value: linkTarget,
-            onChange: event => setLinkTarget(event.target.value),
-            style: styles.select,
-          }, [
-            h('option', { key: '', value: '' }, '选择被依赖的技能…'),
-            ...candidates.map(name => h('option', { key: name, value: name }, name)),
-          ]),
-          h('button', {
-            key: 'go',
-            style: styles.button(!pending && linkTarget !== '' && member),
-            disabled: pending || linkTarget === '' || !member,
-            onClick: () => {
-              void send('edges', { action: 'link', from: skillName, to: linkTarget })
-              setLinkTarget('')
-            },
-          }, '添加依赖'),
-        ]),
       ]))
 
       const incomingRows = incoming.map((edge, index) => h('div', { key: `i${index}`, style: styles.line }, [
         h('span', { key: 'from', style: styles.mono }, edge.from),
         edge.why ? h('span', { key: 'why', style: styles.muted }, edge.why) : null,
-        h('button', {
-          key: 'del',
-          style: styles.button(!pending),
-          disabled: pending,
-          onClick: () => void send('edges', { action: 'unlink', from: edge.from, to: edge.to }),
-        }, '删除'),
       ]))
 
       children.push(h('div', { key: 'in', style: styles.section }, [
