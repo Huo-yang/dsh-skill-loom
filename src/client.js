@@ -9,7 +9,7 @@ window.__ModuleLoader__.load({
     const NODE_W = 150
     const NODE_H = 34
     const GAP_X = 26
-    const ROW_H = 96
+    const ROW_H = 78
 
     const COLORS = { runtime: '#2ea043', red: '#d1242f', gray: '#8b949e', member: '#1f6feb', role: '#8250df' }
 
@@ -113,13 +113,13 @@ window.__ModuleLoader__.load({
         const x = (width - rowWidth) / 2 + index * (NODE_W + GAP_X) + NODE_W / 2
         // Dependencies sit nearest the role; consumers hang below them. `level 0`
         // is a base skill, so it is the row right under the role node.
-        const y = level * ROW_H + 2 * ROW_H + NODE_H
+        const y = level * ROW_H + NODE_H
         positions.set(name, { x, y })
       }
-      place('__role__', -2, 0, 1)
+      place('__role__', 0, 0, 1)
       for (const [level, row] of rows) row.forEach((name, index) => place(name, level + 1, index, row.length))
 
-      const height = (maxLevel + 3) * ROW_H + NODE_H + 20
+      const height = (maxLevel + 2) * ROW_H + NODE_H + 20
       return { width, height, positions, roleLevel }
     }
 
