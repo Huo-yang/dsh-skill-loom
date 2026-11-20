@@ -1,7 +1,7 @@
 /**
  * Read-only HTTP surface for the Skill Loom page.
  *
- * The page is a root-scope panel with no session binding, so it cannot ask for
+ * The route lives outside `/plugins/*` on purpose: that namespace belongs to the\n * client module bundles, and a prefix registered there can be shadowed by it.\n *\n * The page is a root-scope panel with no session binding, so it cannot ask for
  * "this agent's" skill view. The orchestration view is therefore the union of
  * the global layer and every live agent's scope — a superset of what any single
  * session sees, which is what an editor wants: it must not report a
@@ -13,7 +13,7 @@
 import { computeHealth, explainMissing, planRole } from './graph.js'
 
 /** Prefix every route lives under. */
-export const ROUTE_PREFIX = '/plugins/skill-loom'
+export const ROUTE_PREFIX = '/skill-loom'
 
 const json = (body, status = 200) => new Response(JSON.stringify(body), {
   status,

@@ -5,7 +5,7 @@ window.__ModuleLoader__.load({
     const h = React.createElement
     const { useState, useEffect, useCallback } = React
 
-    const API = '/plugins/skill-loom'
+    const API = '/skill-loom'
 
     const STATE_COLORS = {
       runtime: '#2ea043',
