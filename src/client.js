@@ -109,13 +109,16 @@ window.__ModuleLoader__.load({
     }
 
     const MENU_CSS = `
-.loom-menu { margin-top: 6px; padding: 4px; border-radius: 8px; max-height: 200px; overflow-y: auto;
+.loom-menu { margin-top: 6px; padding: 4px; border-radius: var(--dsw-radius-md, 8px); max-height: 200px; overflow-y: auto;
   background: var(--dsw-alias-bg-layer-2, #ffffff);
-  border: 1px solid var(--dsw-alias-border-l2, rgba(127,127,127,.28));
-  box-shadow: 0 8px 24px rgba(0,0,0,.14); }
+  border: .5px solid var(--dsw-alias-border-l3, rgba(127,127,127,.28));
+  box-shadow: 0 10px 28px rgba(0,0,0,.18); }
 .loom-menu--float { position: absolute; top: calc(100% + 4px); right: 0; left: auto; width: 190px; z-index: 30; }
-.loom-menu-item { display: flex; align-items: center; gap: 8px; padding: 6px 10px; border-radius: 6px;
-  font-size: 12px; line-height: 1.2; cursor: pointer; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.loom-menu-item { display: flex; align-items: center; gap: 8px; min-height: 30px; padding: 0 8px;
+  border-radius: var(--dsw-radius-sm, 6px); font-size: 13px; line-height: 20px; cursor: pointer;
+  color: var(--dsw-alias-label-primary, inherit); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.loom-menu-check { margin-left: auto; flex: none; color: var(--dsw-alias-label-primary, currentColor); }
+.loom-menu-label { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 .loom-menu-item:hover { background: var(--dsw-alias-bg-multi-select, rgba(127,127,127,.16)); }
 .loom-menu-empty { padding: 6px 10px; font-size: 12px; opacity: .6; }
 .loom-option { display: inline-flex; align-items: center; gap: 4px; min-height: 28px; padding: 0 8px;
@@ -484,6 +487,16 @@ window.__ModuleLoader__.load({
       const [removalActive, setRemovalActive] = useState(false)
       const [notice, setNotice] = useState(undefined)
       const [roleMenu, setRoleMenu] = useState(false)
+      const roleMenuRef = useRef(undefined)
+      useEffect(() => {
+        if (!roleMenu) return undefined
+        const onDown = event => {
+          const node = roleMenuRef.current
+          if (node !== null && node !== undefined && !node.contains(event.target)) setRoleMenu(false)
+        }
+        document.addEventListener('pointerdown', onDown, true)
+        return () => document.removeEventListener('pointerdown', onDown, true)
+      }, [roleMenu])
       const [creatingRole, setCreatingRole] = useState(undefined)
       const [confirmRoleDel, setConfirmRoleDel] = useState(undefined)
       const [apps, setApps] = useState(undefined)
@@ -918,7 +931,7 @@ window.__ModuleLoader__.load({
             }, cardCollapsed ? '展开' : '收起'),
           ]),
           cardCollapsed ? null : h('div', { key: 'body' }, [
-            h('div', { key: 'roles', style: { position: 'relative' } }, [
+            h('div', { key: 'roles', ref: roleMenuRef, style: { position: 'relative' } }, [
               h('button', {
                 key: 'toggle',
                 style: { ...styles.select, width: '100%', textAlign: 'left', cursor: 'pointer' },
@@ -1061,6 +1074,16 @@ window.__ModuleLoader__.load({
       const [personaDraft, setPersonaDraft] = useState(role.persona?.prefix ?? '')
       const [confirmDelete, setConfirmDelete] = useState(false)
       const [pickerOpen, setPickerOpen] = useState(false)
+      useEffect(() => {
+        if (!pickerOpen) return undefined
+        const onDown = event => {
+          const target = event.target
+          if (typeof target?.closest === 'function' && (target.closest('.loom-option') !== null || target.closest('.loom-menu') !== null)) return
+          setPickerOpen(false)
+        }
+        document.addEventListener('pointerdown', onDown, true)
+        return () => document.removeEventListener('pointerdown', onDown, true)
+      }, [pickerOpen])
 
       useEffect(() => {
         setPersonaDraft(role.persona?.prefix ?? '')
@@ -1258,8 +1281,28 @@ window.__ModuleLoader__.load({
         }
       }
 
+      // Close on any pointer press outside the control, the way a native menu does.
+      const rootRef = useRef(undefined)
+      useEffect(() => {
+        if (!open) return undefined
+        const onDown = event => {
+          const node = rootRef.current
+          if (node !== null && node !== undefined && !node.contains(event.target)) setOpen(false)
+        }
+        document.addEventListener('pointerdown', onDown, true)
+        return () => document.removeEventListener('pointerdown', onDown, true)
+      }, [open])
+
+      const check = h('svg', {
+        viewBox: '0 0 16 16',
+        width: 14,
+        height: 14,
+        className: 'loom-menu-check',
+        'aria-hidden': true,
+      }, h('path', { d: 'M3.5 8.5l3 3 6-7', fill: 'none', stroke: 'currentColor', strokeWidth: 1.6, strokeLinecap: 'round', strokeLinejoin: 'round' }))
+
       const current = roles.find(role => role.id === bound)
-      return h('span', { style: { position: 'relative', display: 'inline-flex' } }, [
+      return h('span', { ref: rootRef, style: { position: 'relative', display: 'inline-flex' } }, [
         h('style', { key: 'css' }, MENU_CSS),
         h('button', {
           key: 'trigger',
@@ -1292,13 +1335,19 @@ window.__ModuleLoader__.load({
         ]),
         open
           ? h('div', { key: 'menu', className: 'loom-menu loom-menu--float', style: { left: 'auto', right: 0, width: 200 } }, [
-            h('div', { key: 'none', className: 'loom-menu-item', onClick: () => void choose(undefined) }, '默认（全部技能）'),
+            h('div', { key: 'none', className: 'loom-menu-item', onClick: () => void choose(undefined) }, [
+              h('span', { key: 'l', className: 'loom-menu-label' }, '默认（全部技能）'),
+              bound === undefined ? h('span', { key: 'c' }, check) : null,
+            ]),
             ...roles.map(role => h('div', {
               key: role.id,
               className: 'loom-menu-item',
               title: role.name,
               onClick: () => void choose(role.id),
-            }, role.name)),
+            }, [
+              h('span', { key: 'l', className: 'loom-menu-label' }, role.name),
+              bound === role.id ? h('span', { key: 'c' }, check) : null,
+            ])),
           ])
           : null,
       ])
