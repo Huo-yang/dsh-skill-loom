@@ -302,7 +302,7 @@ export function topoLevels(role) {
     return level
   }
 
-  for (const node of requires.keys()) levelOf(node)
+  for (const node of requiresClosure(role)) levelOf(node)
   return levels
 }
 

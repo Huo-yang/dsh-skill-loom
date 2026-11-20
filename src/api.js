@@ -69,8 +69,10 @@ export function createRoleGraphApi(deps) {
   }
   if (typeof listSkills !== 'function') throw new TypeError('createRoleGraphApi requires listSkills')
 
-  async function repository(cwd) {
-    const skills = await listSkills(cwd)
+  async function repository(context) {
+    // The catalog is the union the host decides to expose; this layer only
+    // indexes it by skill name.
+    const skills = await listSkills(context)
     return new Map(skills.map(skill => [skill.name, skill]))
   }
 
@@ -138,12 +140,10 @@ export function createRoleGraphApi(deps) {
     if (!ACTIONS.includes(action)) {
       throw new RoleGraphError('UNKNOWN_ACTION', `unknown action "${String(action)}"; use action="help"`)
     }
-    const cwd = context.cwd
-
     if (action === 'help') return { ok: true, action, result: HELP }
 
     if (action === 'plan') {
-      const repo = await repository(cwd)
+      const repo = await repository(context)
       const base = input.role === undefined
         ? { id: generateId(), name: 'draft', members: [], edges: [], conflicts: [] }
         : await load(input.role)
@@ -158,7 +158,7 @@ export function createRoleGraphApi(deps) {
       return { ok: true, action, result: { ...plan, missing: explainMissing(draft, repo, exists) } }
     }
 
-    const repo = await repository(cwd)
+    const repo = await repository(context)
 
     if (action === 'list') {
       const roles = await store.readAll()

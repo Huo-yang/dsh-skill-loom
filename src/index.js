@@ -60,11 +60,23 @@ export function apply(ctx, config = {}) {
   const store = new RoleStore(config.rolesDir ?? defaultRolesDir())
   const api = createRoleGraphApi({
     store,
-    listSkills: async (cwd) => {
-      // No `scope`: the orchestration view must see the whole repository, not
-      // just what the current session's role allows.
-      const summaries = await ctx.skills.list(cwd === undefined ? {} : { cwd })
-      return summaries.map(skill => ({
+    listSkills: async ({ cwd, agent }) => {
+      // The orchestration view needs the union of two layers:
+      //   - the global layer, so a role's own exclusions never hide skills;
+      //   - this agent's scope, because presets mount their own skill providers
+      //     (e.g. `dsh-doc` ships inside the preset package and is invisible
+      //     to an unscoped lookup).
+      // Global wins on a name collision: an agent-scoped shadow must not make a
+      // real skill look absent.
+      const base = cwd === undefined ? {} : { cwd }
+      const globalRows = await ctx.skills.list(base)
+      const byName = new Map(globalRows.map(skill => [skill.name, skill]))
+      if (agent !== undefined) {
+        for (const skill of await ctx.skills.list({ ...base, scope: agent })) {
+          if (!byName.has(skill.name)) byName.set(skill.name, skill)
+        }
+      }
+      return [...byName.values()].map(skill => ({
         name: skill.name,
         description: skill.description,
         path: skill.path,
@@ -94,7 +106,7 @@ export function apply(ctx, config = {}) {
         ? undefined
         : await ctx.workingDirectory.ensure(exec.agent, exec.signal)
       try {
-        return await api.handle(args, { cwd })
+        return await api.handle(args, { cwd, agent: exec.agent })
       } catch (error) {
         if (error instanceof RoleGraphError) {
           const detail = error.details === undefined ? '' : `\n${JSON.stringify(error.details, null, 2)}`

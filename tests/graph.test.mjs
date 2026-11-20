@@ -369,3 +369,9 @@ test('planRole carries the missing classification', () => {
   assert.deepEqual(result.missing.unloaded, [{ name: 'a', path: '/x/a/SKILL.md' }])
   assert.deepEqual(result.red, ['a'])
 })
+test('topoLevels covers members that have no edges at all', () => {
+  const graph = role({ members: ['a', 'b'] })
+  const levels = topoLevels(graph)
+  assert.equal(levels.get('a'), 0)
+  assert.equal(levels.get('b'), 0)
+})
