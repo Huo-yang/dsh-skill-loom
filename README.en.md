@@ -1,74 +1,46 @@
-<h1 align="center">dsh-skill-loom</h1>
+# Skill Loom for DeepSeek Harness
 
-<p align="center">Weave skills into roles: a dependency graph that decides which skills a session may see</p>
+[简体中文](README.md) · [Changelog](CHANGELOG.md) · [Architecture](docs/ARCHITECTURE.md)
 
-<p align="center">
-  <img src="https://img.shields.io/badge/version-0.1.0-orange" alt="Version 0.1.0" />
-  <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue" alt="License: MIT" /></a>
-  <img src="https://img.shields.io/badge/DSH-0.2.2--rc.5-blue" alt="DSH 0.2.2-rc.5" />
-</p>
-
-<p align="center"><a href="README.md">简体中文</a> | <strong>English</strong></p>
-
----
-
-## The problem
-
-DSH's skill catalog is process-wide: every session sees the same `<available_skills>`. With dozens of skills installed, each request carries all of their names and descriptions, which eats context and makes the model choose worse.
-
-| Approach | Mechanism | Gap |
-|---|---|---|
-| Agent Preset | Pick a plugin subset when a session is created | Locked once the session starts |
-| Skill managers | Group filtering, on-demand exposure, per-item trimming | No "role" as a whole |
-
-`dsh-skill-loom`'s position: **skills depend on each other, and those dependencies should be drawn.** A role is the root of that graph, and a session narrows its usable skills by binding to a role.
-
-## Features
-
-- **A role is one dependency graph.** The role is the root, skills are nodes, `requires` are edges. One file per role; deleting a role deletes its whole graph.
-- **Visual orchestration.** Top-down from the role; drag nodes to connect, drag skills in from the list, drag a node to the trash zone to remove it, drag a session onto the role node to bind.
-- **Agent-operable.** `role_graph` creates roles, edits members and edges, and dry-runs; `role_spawn` runs a subagent under a chosen role.
-- **Session-scoped.** Binding changes that session's skill catalog only.
-- **Missing is visible.** A deleted or renamed skill turns red and its dependents gray, with diagnostics that say whether the file is gone or merely unloaded.
-
-## Requirements
-
-- DSH Web `0.2.2-rc.5` (verified against this version).
-- Node.js 22+.
-- Web profile only (client slots).
+Skill Loom organizes skills into visual roles and reusable ability families. A DSH session bound to a role sees only the skills in that role whose dependencies are healthy. This keeps the skill context smaller and makes prerequisites visible to both the agent and the person editing the graph.
 
 ## Install
 
+Node.js 22 or later is required. Verified with DSH Web 0.2.2-rc.5 on Windows.
+
 ```powershell
-dsh plugin --profile web add "D:\CodeSpace\personal\DSH_Plugin\dsh-skill-loom"
-# then register the bundle (plugin_manager install_bundle with that absolute path)
-# first install needs one dsh web restart: client modules are built at startup
+dsh plugin --profile web add @huo-yang/dsh-skill-loom@0.1.0
 dsh web
 ```
 
-Later host-code changes take effect with `plugin_manager` disable + enable; only *new client modules* need a restart.
+You can also install a downloaded .tgz by passing its path in place of the package name. Restart an already-running DSH Web process, then open Skill Loom from the left navigation or from a conversation’s right sidebar.
 
-## Usage
+## Use
 
-Tell the agent what you want ("build a review role with code-review and git skills, no file writes") and it drives `role_graph`. Deleting a role is UI-only by design.
+1. **Build a role.** Create a role and drag skills from the library onto its root. Drop a skill onto another skill to connect them. Drag an existing node to the canvas removal zone to remove it.
+2. **Reuse an ability family.** An ability family stores related skills and their dependencies. Drop one onto the role root or another skill to add missing nodes and edges. Existing skills are shared.
+3. **Save and bind.** Graph changes stay in a draft with undo and redo until you save. Choose a role next to the composer when starting a DSH conversation. The role description appears in the UI. The persona you set in the upper-right canvas controls is injected into bound sessions.
+4. **Inspect health.** Red indicates a missing skill. Gray indicates a skill directly or indirectly blocked by a missing dependency. Hover over a skill to inspect its description, dependencies and membership.
 
-In the UI: drag a skill onto the role node to include it, onto another skill node to make it depend on that skill; drag a node's grip handle to the trash zone to remove it; drag an edge's midpoint away to delete the edge; drag a session row onto the role node to bind it.
+### Let DSH edit the graph
 
-## Data and boundaries
+Create a role, drop the built-in orchestration family onto its root and save. Start a conversation with that role, then describe the role or family you want DSH to build.
 
-- Role graphs: `$DSH_HOME/roles/<uuid>.json` (atomic writes, per-role revisions).
-- Session bindings: `$DSH_HOME/roles/bindings.json`.
-- Read routes `GET /skill-loom/roles` and `GET /skill-loom/sessions`; writes accept only member, edge, persona, delete and binding actions, with same-origin checks and a body-size cap.
-- Uninstalling does **not** delete role data automatically.
+> Create a role for reviewing project documentation. Check its skill prerequisites, save the result, and open Skill Loom in this conversation’s right sidebar so I can review it.
+
+DSH uses role_graph for roles, role_family to create, update and reuse families, and role_review to open the saved graph in the current Web conversation. An open editor preserves your unsaved draft.
+
+## Scope
+
+Binding controls the skill catalog and named skill loading for that conversation. Healthy skills can be loaded on demand. Missing, blocked and excluded skills are omitted and cannot be loaded by the skill tool. If the agent has permission to read a skill file, it can still read that file with a file tool. DSH controls file, command and network permissions.
+
+Roles, families and bindings live under roles in the DSH data directory. Unsaved graph drafts stay in the current browser.
 
 ## Development
 
 ```powershell
-node --test    # 172 unit tests
+npm run check
+npm pack --dry-run
 ```
 
-No build step: host and client halves are plain ESM JavaScript.
-
-## License
-
-[MIT](LICENSE)
+See the [contribution guide](CONTRIBUTING.md). Released under the [MIT license](LICENSE).

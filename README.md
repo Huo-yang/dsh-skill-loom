@@ -1,112 +1,46 @@
-<h1 align="center">dsh-skill-loom</h1>
+# Skill Loom for DeepSeek Harness
 
-<p align="center">把技能织成角色：用一张依赖图管理「这个会话该看见哪些 skills」</p>
+[English](README.en.md) · [更新记录](CHANGELOG.md) · [架构](docs/ARCHITECTURE.md)
 
-<p align="center">
-  <img src="https://img.shields.io/badge/version-0.1.0-orange" alt="Version 0.1.0" />
-  <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue" alt="License: MIT" /></a>
-  <img src="https://img.shields.io/badge/DSH-0.2.2--rc.5-blue" alt="DSH 0.2.2-rc.5" />
-</p>
-
-<p align="center"><strong>简体中文</strong> | <a href="README.en.md">English</a></p>
-
-<p align="center">
-  <a href="#功能">功能</a> ·
-  <a href="#安装">安装</a> ·
-  <a href="#使用">使用</a> ·
-  <a href="#数据与安全边界">数据</a> ·
-  <a href="docs/ARCHITECTURE.md">架构设计</a> ·
-  <a href="CHANGELOG.md">更新记录</a>
-</p>
-
----
-
-## 要解决的问题
-
-DSH 的技能目录是进程级共享的：所有会话看到同一份 `<available_skills>`。技能装到几十个之后，每个请求都要携带全部技能的名称与描述，既占上下文，也让模型在过多候选里挑不准。
-
-现有两条路都不完整：
-
-| 方案 | 机制 | 缺口 |
-|---|---|---|
-| Agent Preset | 会话创建时选一个插件子集 | 会话一开始就锁死 |
-| 技能管理类插件 | 分组过滤、按需暴露、逐项裁剪 | 没有「角色」这个整体 |
-
-`dsh-skill-loom` 的立场：**技能之间存在依赖，依赖应该被画出来**；角色是这张图的根，会话按角色收窄可用技能。
-
-## 功能
-
-- **角色 = 一张依赖图**。角色是根，技能是节点，`requires` 是边。一个角色一个文件，删除角色即删除整张图。
-- **可视化编排**。图上从上到下是「角色 → 依赖 → 被依赖」；拖节点建依赖、拖技能进图、拖到删除区移除、拖会话到角色节点完成绑定。
-- **agent 可编排**。`role_graph` 工具让 agent 直接建角色、改成员、连线、试算；`role_spawn` 让子代理运行在指定角色下。
-- **会话级生效**。绑定后只影响该会话的技能目录，其他会话不受影响。
-- **缺失可见**。技能被删除或改名时节点标红、其下游标灰，并给出「文件还在但没被加载」这类可执行的诊断。
-
-## 要求
-
-- DSH Web `0.2.2-rc.5`（本仓库在该版本实测）。
-- Node.js 22+。
-- 只支持 Web profile（依赖客户端插槽）。
+Skill Loom 把技能组织成可视化角色和可复用的能力族。把角色绑定到 DSH 会话后，可用技能目录只包含该角色中依赖完整的技能。Agent 因此能用更短的上下文了解当前能力，人也能在画布上看清技能之间的前置条件。
 
 ## 安装
 
+需要 Node.js 22 或更新版本。已在 Windows 上验证 DSH Web 0.2.2-rc.5。
+
 ```powershell
-# 1) 把包装进 profile
-dsh plugin --profile web add "D:\CodeSpace\personal\DSH_Plugin\dsh-skill-loom"
-
-# 2) 注册为 bundle（推荐用 agent 的 plugin_manager 工具：
-#    action=install_bundle, target=<上面的绝对路径>）
-
-# 3) 首次安装必须重启一次 dsh web：客户端模块在启动时构建
+dsh plugin --profile web add @huo-yang/dsh-skill-loom@0.1.0
 dsh web
 ```
 
-之后修改宿主代码用 `plugin_manager` 的 disable + enable 即可生效；**新增客户端模块**才需要重启。
-
-左侧导航栏在「插件」与「自动化任务」之间出现「技能编排」；右侧边栏可再开一个紧凑版页签，用于边对话边编排。
+也可以把包名替换为下载的 .tgz 文件路径。若 DSH Web 已在运行，重启后从左侧导航栏打开「技能编排」。会话右侧栏也提供同名页签。
 
 ## 使用
 
-### 让 agent 编排
+1. **编排角色**。新建角色，将技能从右侧库拖到角色根节点。将技能拖到另一个技能节点可建立依赖。移除技能时，把画布节点拖到下方移除区。
+2. **复用能力族**。能力族保存可一起使用的技能和依赖。将能力族拖到角色根节点或某个技能节点，即可纳入缺少的技能和连线。已有技能会复用。
+3. **保存并绑定**。技能和依赖的修改先进入草稿，可撤销、重做。点「保存」后才应用。新建 DSH 会话时，从输入框旁选择角色。角色简介用于界面展示，人设从画布右上角编辑并注入已绑定会话。
+4. **检查依赖**。红色表示技能缺失，灰色表示技能因直接或间接依赖缺失而受阻。悬停技能可查看简介、依赖和纳入状态。
 
-直接说需求即可，例如：
+### 让 DSH 帮你编排
 
-> 建一个「审阅」角色，只要代码审阅和 git 相关的技能，不要写文件。
+新建一个角色，把预置能力族「技能编排助手」拖入角色根节点并保存。用该角色新建 DSH 会话，然后直接描述要创建或调整的角色或能力族。
 
-agent 会调用 `role_graph`：`plan` 试算 → `create` / `add_members` / `link` → 返回结果。删除角色不在 agent 工具面内，只走界面。
+> 建一个用于审阅项目文档的角色。先确认需要哪些技能和依赖，保存后在当前会话右侧打开技能编排供我检查。
 
-### 在界面上编排
+DSH 使用 role_graph 编排角色，使用 role_family 创建、修改和复用能力族，使用 role_review 打开当前 Web 会话的检查侧栏。侧栏已有未保存草稿时，草稿会保留。
 
-| 操作 | 方式 |
-|---|---|
-| 纳入技能 | 从右侧列表把技能拖到**角色节点**上 |
-| 建立依赖 | 从列表把技能拖到**另一个技能节点**上（落点依赖被拖动的技能） |
-| 移除成员 | 抓节点左侧握把，拖到底部「拖到此处移除」区域 |
-| 删除依赖 | 拖动连线的中点，移开即删除 |
-| 绑定会话 | 把角色卡里的会话条拖到角色节点上；点「解绑」解除 |
-| 改人设 | 右侧详情区（未选中技能时）编辑 persona 并保存 |
+## 会话生效范围
 
-### 会话级生效
+绑定角色后，健康技能进入该会话的可用技能目录，可按需加载正文。缺失、被阻断和未纳入的技能从目录排除，也无法经该会话的技能工具按名加载。Agent 若拥有文件读取权限，仍可用文件工具读取原文件。文件、命令和网络权限由 DSH 控制。
 
-绑定后，该会话的 `<available_skills>` 只保留角色纳入且健康的技能，其余在本会话内不可见、也不可被 `skill` 工具按名加载。
-
-## 数据与安全边界
-
-- 角色图：`$DSH_HOME/roles/<uuid>.json`（原子写、按角色独立 revision）。
-- 会话绑定：`$DSH_HOME/roles/bindings.json`。
-- 只读接口 `GET /skill-loom/roles`、`GET /skill-loom/sessions`；写接口只接受成员、连线、人设、删除与会话绑定这几类动作，且校验同源、限制请求体大小。
-- **卸载不会自动删除角色数据**；需要清理时手动删除上述目录。
-- 角色只决定「这个会话能看见哪些技能」，不是操作系统级沙箱；文件与命令仍受 DSH 全局策略约束。
+角色、能力族和会话绑定保存在 DSH 数据目录的 roles 下。未保存的编排草稿留在当前浏览器。
 
 ## 开发
 
 ```powershell
-cd D:\CodeSpace\personal\DSH_Plugin\dsh-skill-loom
-node --test          # 172 条单元测试
+npm run check
+npm pack --dry-run
 ```
 
-无构建步骤：宿主与客户端都是纯 ESM JavaScript，客户端模块直接以 `window.__ModuleLoader__.load` 格式分发。
-
-## 许可证
-
-[MIT](LICENSE)
+详见 [贡献指南](CONTRIBUTING.md)。本项目采用 [MIT 许可证](LICENSE)。

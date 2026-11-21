@@ -68,6 +68,21 @@ test('an unknown action is refused with a pointer to help', async () => {
   await expectCode(api().handle({ action: 'delete' }), 'UNKNOWN_ACTION')
 })
 
+test('a role description can change or clear independently of its persona', async () => {
+  const handler = api()
+  const { result: { role } } = await handler.handle({ action: 'create', name: 'Review', persona: 'Cite evidence.' })
+  const { result: { role: updated } } = await handler.handle({
+    action: 'set_description', role: role.id, description: '  Review\n documents  ',
+  })
+  assert.equal(updated.description, 'Review documents')
+  assert.deepEqual(updated.persona, role.persona)
+  const { result: { role: cleared } } = await handler.handle({
+    action: 'set_description', role: role.id, description: ' ',
+  })
+  assert.equal(cleared.description, undefined)
+  assert.deepEqual(cleared.persona, role.persona)
+})
+
 test('create then list reports the new role', async () => {
   const handler = api()
   const created = await handler.handle({ action: 'create', name: '审阅' })

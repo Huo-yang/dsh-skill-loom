@@ -1,0 +1,30 @@
+name: Release package
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  package:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Verify version
+        if: github.ref_type == 'tag'
+        run: node -e "if (process.env.GITHUB_REF_NAME !== 'v' + require('./package.json').version) process.exit(1)"
+      - run: npm run check
+      - run: npm pack
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dsh-skill-loom
+          path: '*.tgz'
+          if-no-files-found: error

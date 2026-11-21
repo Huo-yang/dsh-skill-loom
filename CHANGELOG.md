@@ -1,50 +1,17 @@
 # 更新记录 / Changelog
 
-## [0.1.0] — 2026-11-20
+## 0.1.0
 
-### 新增 / Added
+- 角色与能力族依赖图，支持拖拽编排、搜索、悬停详情和确认删除。
+- 编排草稿支持撤销、重做与刷新后恢复。角色编排在保存后生效。
+- 会话级角色绑定和人设注入。缺失技能标红，直接和间接受阻技能标灰，均从会话可用技能目录排除。
+- 预置「技能编排助手」能力族。DSH 可通过 role_graph 和 role_family 编排，并用 role_review 在当前会话右侧打开结果。
+- 验证宿主为 Windows 上的 DSH Web 0.2.2-rc.5。
 
-- 角色图模型：单个角色一个文件、UUID 作为存储键、显示名中英文均可且唯一。
-- 依赖语义：`requires` 边构成 DAG，支持闭包解析、环检测、拓扑层级推导、冲突校验。
-- 红/灰状态：名字解析不到为红，沿 `requires` 反向可达红点的为灰；两者都不进入运行时集合（连坐）。
-- 技能锚点：保存时记录 `path` / `source` / `provider`，用于解释红色成因与发现重装漂移；永不参与解析。
-- 持久化：原子写、每角色 revision、并发冲突检测、损坏文件隔离。
-- `role_graph` 工具：`help` / `list` / `show` / `plan` / `create` / `set_name` / `set_persona` / `add_members` / `remove_members` / `link` / `unlink` / `duplicate` / `bind` / `unbind`。
-- 运行时应用：按角色在 agent 作用域注册同名影子（两个调用开关均关闭）与 persona 段，会话绑定持久化在 `roles/bindings.json`，技能目录变化时防抖重建。
-- English: role graph model, DAG semantics with cascading exclusion, skill anchors for missing-skill explanation, per-role atomic storage with revisions, and the `role_graph` tool.
+### English
 
-### 修复 / Fixed
-
-- 只读接口迁移到 `/skill-loom`：`/plugins/*` 属于客户端模块命名空间，占用会被其覆盖。
-- `webServer` 改为 `ctx.inject` 等待：启动阶段 `ctx.get` 拿不到服务，路由会被静默跳过。
-
-- 插件卸载后防抖定时器仍访问宿主服务，导致 `fatal load failure`。现在定时器与事件回调都带存活检查，异常不再逃逸到事件循环。
-- 绑定文件曾写到 `$DSH_HOME/bindings.json`，已改为 `$DSH_HOME/roles/bindings.json`。
-
-### 新增 / Added
-
-- `role_spawn` 工具：为子代理显式指定角色；子代理默认继承父会话角色。角色解析顺序为 override → 继承 → 自身绑定，失效的候选会被跳过而不是中止。
-- 子会话的角色绑定会被持久化，插件重载后仍可恢复。
-
-### 新增 / Added
-
-- 只读页面：左侧「技能编排」入口（位于插件与自动化任务之间），展示角色列表、技能三态、依赖边与校验结果。
-- 只读 HTTP 接口 `/plugins/skill-loom/roles`，编排视角为全局层与所有活跃 agent 作用域的并集。
-
-### 新增 / Added
-
-- 页面可直接增删角色成员：右侧“可用技能”提供纳入，成员行提供移除；保存后自动刷新。
-- 写接口只接受 `add_members` / `remove_members`，校验来源与请求体大小，revision 冲突返回 409。
-
-### 新增 / Added
-
-- 编排图：上方以角色为根、依赖向下的分层图，实线表示依赖、虚线表示纳入。
-- 技能检查器：下方可过滤技能列表，点选后编辑它在本角色内的依赖（增删边）与成员关系。
-
-### 测试 / Tests
-
-- 111 条测试，其中生命周期相关 12 条：防抖存活、卸载后不执行、取消竞态、teardown 幂等与容错。
-
-### 说明 / Notes
-
-- M1 与 M2 运行时已在真实 DSH 0.2.2-rc.5 验证：绑定后宿主目录清空、解绑后恢复。
+- Visual DAGs for roles and ability families, with drag and drop, search, hover details and deletion confirmation.
+- Graph drafts with undo, redo and browser recovery. Role graph edits take effect when saved.
+- Per-session persona and skill selection. Missing nodes are red and directly or indirectly blocked nodes are gray. Both are omitted from the session skill catalog.
+- Built-in orchestration family. DSH can edit graphs with role_graph and role_family, and open them in the current conversation with role_review.
+- Verified with DSH Web 0.2.2-rc.5 on Windows.

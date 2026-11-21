@@ -4,6 +4,7 @@ import * as module from 'node:module'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import test from 'node:test'
+import { Readable } from 'node:stream'
 
 test('live edits refresh the bound agent and an unsuccessful bind preserves its role', {
   skip: typeof module.registerHooks !== 'function',
@@ -26,13 +27,19 @@ test('live edits refresh the bound agent and an unsuccessful bind preserves its 
   const events = new Map()
   const sections = new Set()
   const shadows = new Set()
+  const packagedSkills = new Map()
   const skill = { name: 'review', description: 'Review documents' }
   let failPreparation = false
   let rejectShadow = false
+  const catalog = [skill]
   const skills = {
-    list: () => [skill],
+    list: () => catalog,
     get: () => skill,
     register(definition) {
+      if (definition.invocation?.modelInvocable !== false) {
+        packagedSkills.set(definition.name, definition)
+        return () => packagedSkills.delete(definition.name)
+      }
       if (rejectShadow) throw new Error('registry unavailable')
       shadows.add(definition.name)
       return () => shadows.delete(definition.name)
@@ -50,6 +57,7 @@ test('live edits refresh the bound agent and an unsuccessful bind preserves its 
     session: { header: { id: 'test-session' } },
   }
   let cleanup
+  let webHandler
   apply({
     tools: { register: tool => tools.set(tool.name, tool) },
     skills,
@@ -61,7 +69,12 @@ test('live edits refresh the bound agent and an unsuccessful bind preserves its 
       },
     },
     agents: { list: () => [agent], get: () => agent },
-    inject() {},
+    inject(_services, register) {
+      register({
+        effect: callback => callback(),
+        webServer: { register: route => { webHandler = route.handler } },
+      })
+    },
     on: (name, listener) => events.set(name, listener),
     effect: callback => { cleanup = callback() },
   }, { rolesDir })
@@ -94,4 +107,91 @@ test('live edits refresh the bound agent and an unsuccessful bind preserves its 
   const resumed = { ...agent }
   await events.get('agent/created')({ agent: resumed })
   assert.deepEqual([...sections], ['saved'])
+
+  const request = async (url, payload, expectedStatus = 200) => {
+    const req = Object.assign(Readable.from(payload === undefined ? [] : [Buffer.from(JSON.stringify(payload))]), {
+      url: '/skill-loom' + url, method: payload === undefined ? 'GET' : 'POST', headers: { 'content-type': 'application/json' },
+    })
+    let body
+    const res = { setHeader() {}, end(chunk) { body = JSON.parse(chunk) } }
+    await webHandler(req, res)
+    assert.equal(res.statusCode, expectedStatus, JSON.stringify(body))
+    return body
+  }
+  const post = request
+  catalog.push({ name: 'format' })
+  await t.test('role graph previews do not persist or refresh the bound agent', async () => {
+    catalog.push({ name: 'proof' })
+    const role = (await run({ action: 'show', role: first.id })).result.role
+    const route = '/roles/' + role.id
+    const graph = {
+      action: 'set_graph', expectedRevision: role.revision,
+      members: ['proof', 'format'], edges: [{ from: 'proof', to: 'format' }],
+    }
+    const { result: { result: preview } } = await post(route + '/graph', { ...graph, preview: true })
+    assert.deepEqual(preview.role.members, graph.members)
+    assert.deepEqual(preview.role.edges, graph.edges)
+    assert.equal(preview.role.revision, role.revision)
+    assert.deepEqual((await run({ action: 'show', role: role.id })).result.role, role)
+    assert.deepEqual([...shadows], [])
+
+    const { result: { result: saved } } = await post(route + '/graph', graph)
+    assert.equal(saved.role.revision, role.revision + 1)
+    assert.equal(saved.role.persona.prefix, role.persona.prefix)
+    assert.deepEqual(saved.role.edges, graph.edges)
+    assert.deepEqual([...shadows], ['review'])
+    await post(route + '/graph', graph, 409)
+    await post(route + '/graph', {
+      ...graph, preview: true, expectedRevision: saved.role.revision,
+      edges: [...graph.edges, { from: 'format', to: 'proof' }],
+    }, 400)
+    assert.deepEqual((await run({ action: 'show', role: role.id })).result.role, saved.role)
+  })
+
+  await t.test('one undo restores the entire graph after a family insertion', async () => {
+    const { result: family } = await post('/families', {
+      action: 'create', name: 'Document review',
+      graph: { members: ['review', 'format'], edges: [{ from: 'review', to: 'format' }] },
+    })
+    const route = '/roles/' + second.id
+    const inserted = await post(route + '/families', {
+      familyId: family.id, familyRevision: family.revision, expectedRevision: second.revision,
+    })
+    const saved = inserted.result.result.role
+    assert.deepEqual(saved.members, ['review', 'format'])
+    assert.deepEqual(saved.edges, [{ from: 'review', to: 'format' }])
+
+    const undone = await post(route + '/history', { action: 'undo', expectedRevision: saved.revision })
+    assert.deepEqual(undone.role.members, second.members)
+    assert.deepEqual(undone.role.edges, second.edges)
+    assert.equal(undone.history.undo, 0)
+  })
+
+  await t.test('the bundled skills can compose a family and queue review for the calling session', async () => {
+    const familyTool = args => tools.get('role_family').execute(args, { agent })
+    const preset = (await familyTool({ action: 'show', family: 'builtin-role-orchestration' })).family
+    assert.deepEqual(preset.members, ['skill-loom-orchestrate', 'skill-loom-review'])
+    for (const name of preset.members) {
+      assert.equal(packagedSkills.get(name).invocation.modelInvocable, true)
+    }
+    assert.match(packagedSkills.get('skill-loom-review').content, /role_review/)
+    const created = (await familyTool({
+      action: 'create', name: 'Review helper', members: ['review', 'format'],
+      edges: [{ from: 'review', to: 'format', why: 'Review uses the formatter report' }],
+    })).family
+    await assert.rejects(familyTool({ action: 'update', family: created.id, revision: 0, name: 'Stale' }),
+      { name: 'RoleConflictError' })
+    const updated = (await familyTool({
+      action: 'update', family: created.id, revision: created.revision, description: 'Review formatted documents.',
+    })).family
+    const { result: applied } = await familyTool({ action: 'apply', family: updated.id, role: second.id })
+    assert.deepEqual(applied.role.members, ['review', 'format'])
+    assert.deepEqual(applied.role.edges, updated.edges)
+    const review = await tools.get('role_review').execute({ family: updated.id }, { agent })
+    assert.equal(review.queued, true)
+    assert.deepEqual(await request('/sessions/review?session=other-session'), { request: null })
+    const { request: pending } = await request('/sessions/review?session=test-session')
+    assert.equal(pending.familyId, updated.id)
+    assert.ok(pending.ticket)
+  })
 })

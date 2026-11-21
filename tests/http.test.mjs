@@ -46,6 +46,22 @@ const resource = (overrides = {}) => createResource({
 
 const get = (path, method = 'GET') => new Request(`http://127.0.0.1:3080${path}`, { method })
 
+test('family previews provide graph levels and catalog health', async () => {
+  const family = { id: 'preset', members: ['a', 'b'], entries: ['a'], edges: [{ from: 'a', to: 'b' }] }
+  const handler = createResource({
+    store: storeOf(),
+    catalog: catalogOf({ a: { name: 'a' } }),
+    families: { list: async () => [family] },
+  })
+  const response = await handler(get('/skill-loom/families'))
+  assert.equal(response.status, 200)
+  const { families } = await response.json()
+  assert.deepEqual(families[0].preview, {
+    members: ['a', 'b'], levels: { a: 1, b: 0 }, runtime: [], red: ['b'],
+    gray: [{ name: 'a', path: ['a', 'b'] }],
+  })
+})
+
 test('the list route returns roles and the skill catalog', async () => {
   const response = await resource()(get('/skill-loom/roles'))
   assert.equal(response.status, 200)

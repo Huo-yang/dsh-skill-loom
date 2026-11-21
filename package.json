@@ -1,22 +1,27 @@
 {
-  "name": "dsh-skill-loom",
+  "name": "@huo-yang/dsh-skill-loom",
   "version": "0.1.0",
-  "private": true,
   "type": "module",
-  "description": "Weave skills into roles: per-role skill dependency graphs for DeepSeek Harness",
+  "description": "Compose skill dependency graphs into session-scoped roles and reusable ability families for DeepSeek Harness.",
   "license": "MIT",
   "main": "./src/index.js",
   "exports": {
     ".": "./src/index.js",
-    "./client": "./src/client.js"
+    "./client": "./src/client.js",
+    "./locale/*.json": "./locale/*.json",
+    "./cordis.patch.yml": "./cordis.patch.yml",
+    "./package.json": "./package.json"
   },
   "files": [
     "src",
+    "locale",
     "cordis.patch.yml",
     "README.md",
     "README.en.md",
     "CHANGELOG.md",
-    "LICENSE"
+    "LICENSE",
+    "CONTRIBUTING.md",
+    "docs/ARCHITECTURE.md"
   ],
   "dsh": {
     "bundle": {
@@ -47,5 +52,25 @@
   "scripts": {
     "test": "node --test \"tests/*.test.mjs\"",
     "check": "npm test"
-  }
+  },
+  "homepage": "https://github.com/Huo-yang/dsh-skill-loom#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Huo-yang/dsh-skill-loom.git"
+  },
+  "bugs": {
+    "url": "https://github.com/Huo-yang/dsh-skill-loom/issues"
+  },
+  "publishConfig": {
+    "access": "public",
+    "registry": "https://registry.npmjs.org/"
+  },
+  "keywords": [
+    "dsh",
+    "deepseek-harness",
+    "plugin",
+    "skills",
+    "roles",
+    "dag"
+  ]
 }

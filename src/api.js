@@ -21,6 +21,7 @@ import {
   validateRole,
   validateRoleName,
 } from './graph.js'
+import { RoleConflictError } from './store.js'
 
 /** A failure the caller can act on, as opposed to a bug or an I/O error. */
 export class RoleGraphError extends Error {
@@ -39,7 +40,7 @@ export class RoleGraphError extends Error {
 
 const ACTIONS = [
   'help', 'list', 'show', 'plan',
-  'create', 'set_name', 'set_persona',
+  'create', 'set_name', 'set_description', 'set_persona',
   'add_members', 'remove_members',
   'link', 'unlink', 'reparent', 'duplicate', 'bind', 'unbind',
 ]
@@ -125,7 +126,7 @@ export function createRoleGraphApi(deps) {
 
     // The caller states who is writing: an agent must justify every edge it
     // creates, a human editing through the page does not (D11).
-    const issues = validateRole(trimmed, repo, { source: options.source ?? 'agent', exists })
+    const issues = validateRole(role, repo, { source: options.source ?? 'agent', exists })
     const errors = issues.filter(issue => issue.severity === 'error')
     if (errors.length > 0) {
       throw new RoleGraphError('VALIDATION_FAILED', 'the role was not saved because it is invalid', { issues: errors })
@@ -139,7 +140,7 @@ export function createRoleGraphApi(deps) {
       members: [...resolvedMembers(trimmed)],
       anchors: captureAnchors(trimmed, repo),
     }
-    const saved = await store.save(filled, { expectedRevision: options.expectedRevision })
+    const saved = options.preview ? filled : await store.save(filled, { expectedRevision: options.expectedRevision })
     return {
       role: saved,
       plan: planRole(saved, repo, { exists }),
@@ -150,7 +151,7 @@ export function createRoleGraphApi(deps) {
 
   async function handle(input = {}, context = {}) {
     const action = input.action
-    if (!ACTIONS.includes(action)) {
+    if (!ACTIONS.includes(action) && !(action === 'set_graph' && context.source === 'human')) {
       throw new RoleGraphError('UNKNOWN_ACTION', `unknown action "${String(action)}"; use action="help"`)
     }
     if (action === 'help') return { ok: true, action, result: HELP }
@@ -237,6 +238,27 @@ export function createRoleGraphApi(deps) {
         next.persona = { ...(next.persona ?? {}), prefix: input.persona }
         break
       }
+      case 'set_description': {
+        if (typeof input.description !== 'string') throw new RoleGraphError('INVALID_DESCRIPTION', '简介必须是文本')
+        const description = input.description.trim().replace(/\s+/g, ' ')
+        if (description.length > 160) throw new RoleGraphError('INVALID_DESCRIPTION', '简介最多 160 个字符')
+        if (description) next.description = description
+        else delete next.description
+        break
+      }
+      case 'set_graph': {
+        if (current.revision !== context.expectedRevision) {
+          throw new RoleConflictError(current.id, context.expectedRevision, current.revision)
+        }
+        if (!Array.isArray(input.members) || !input.members.every(name => typeof name === 'string' && name.trim())
+          || !Array.isArray(input.edges) || !input.edges.every(edge => typeof edge?.from === 'string'
+            && typeof edge.to === 'string' && (edge.why === undefined || typeof edge.why === 'string'))) {
+          throw new RoleGraphError('INVALID_GRAPH', '技能或依赖格式无效')
+        }
+        next.members = input.members
+        next.edges = input.edges.map(({ from, to, why }) => ({ from, to, ...(why === undefined ? {} : { why }) }))
+        break
+      }
       case 'add_members': {
         if (!Array.isArray(input.add) || input.add.length === 0) {
           throw new RoleGraphError('INVALID_MEMBERS', 'add_members needs a non-empty "add" array')
@@ -319,11 +341,26 @@ export function createRoleGraphApi(deps) {
         throw new RoleGraphError('UNKNOWN_ACTION', `unknown action "${action}"`)
     }
 
-    const saved = await persist(next, repo, { expectedRevision: context.expectedRevision, source: context.source })
+    const saved = await persist(next, repo, {
+      expectedRevision: context.expectedRevision, source: context.source,
+      preview: action === 'set_graph' && input.preview === true,
+    })
     return { ok: true, action, result: saved }
   }
 
-  return { handle, resolve: load }
+  async function applyFamily(input, build) {
+    const current = await load(input.role)
+    if (current.revision !== input.expectedRevision) {
+      throw new RoleConflictError(current.id, input.expectedRevision, current.revision)
+    }
+    const next = await build(current)
+    const saved = await persist(next, await repository({}), {
+      expectedRevision: input.expectedRevision, source: 'human',
+    })
+    return { ok: true, result: saved }
+  }
+
+  return { handle, resolve: load, applyFamily }
 }
 /**
  * Drop edges whose target is already reachable through another edge.

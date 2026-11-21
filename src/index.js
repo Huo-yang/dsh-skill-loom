@@ -36,6 +36,7 @@ import { ROUTE_PREFIX, createResource, toNodeHandler } from './http.js'
 import { createOverrideRegistry, resolveCreatedRole } from './spawn.js'
 import { RoleConflictError, RoleStore } from './store.js'
 import { createHistory } from './history.js'
+import { createFamilyLibrary, mergeFamily } from './families.js'
 
 /** Cordis plugin name. */
 export const name = 'skill-loom'
@@ -52,17 +53,41 @@ const PARAMETERS = {
   action: {
     type: 'string',
     required: true,
-    description: 'help | list | show | plan | create | set_name | set_persona | add_members | remove_members | link | unlink | reparent | duplicate | bind | unbind',
+    description: 'help | list | show | plan | create | set_name | set_description | set_persona | add_members | remove_members | link | unlink | reparent | duplicate | bind | unbind',
   },
   role: { type: 'string', description: 'Role UUID or display name.' },
   name: { type: 'string', description: 'Display name (create, set_name, duplicate). Any script, <= 64 chars.' },
   persona: { type: 'string', description: 'Persona prefix for set_persona / create.' },
+  description: { type: 'string', description: 'Short role description displayed in the UI (set_description, <= 160 chars).' },
   add: { type: 'array', items: { type: 'string' }, description: 'Skill names to add (add_members, plan).' },
   remove: { type: 'array', items: { type: 'string' }, description: 'Skill names to remove (remove_members, plan).' },
   from: { type: 'string', description: 'Requiring skill (link, unlink, reparent).' },
   to: { type: 'string', description: 'Required skill (link, unlink, reparent).' },
   why: { type: 'string', description: 'Why the edge exists. Required for agent-created edges, <= 80 chars.' },
 }
+
+const ORCHESTRATION_SKILLS = [
+  {
+    name: 'skill-loom-orchestrate',
+    description: '按用户目标整理技能，创建或更新 DSH 角色与能力族。',
+    content: [
+      '用 role_graph(action="list") 读取角色与技能目录。只选目录中能完成任务的技能。',
+      '用 role_graph 的 create、add_members、link 编排角色。只有确实需要另一个技能时才建依赖；from 是使用者，to 是它依赖的技能，why 写明具体理由。',
+      '更新已有角色前先 show。用 role_graph 的 plan 或 show 检查 runtime、red 和 gray。不要用缺失技能凑齐能力。',
+      '用 role_family(action="list") 查找能力族。用 create 建独立能力族，用 show 取得 revision 后再 update，用 apply 将能力族合入角色。',
+      '完成配置后，加载 skill-loom-review，在当前 DSH 会话打开技能编排侧栏供用户检查。',
+    ].join('\n'),
+  },
+  {
+    name: 'skill-loom-review',
+    description: '检查角色或能力族的编排结果，并打开当前 DSH 会话的技能编排侧栏。',
+    content: [
+      '用 role_graph(show) 或 role_family(show) 核对刚保存的技能和依赖，指出缺失或被阻断的技能。',
+      '在最终回复前调用 role_review。检查角色传 role，检查能力族传 family，二选一。',
+      '用简短文字说明改动和仍需用户确认的选择。已有角色、会话绑定与用户数据只按用户要求修改。',
+    ].join('\n'),
+  },
+]
 
 /**
  * Mount the plugin.
@@ -72,6 +97,18 @@ const PARAMETERS = {
 export function apply(ctx, config = {}) {
   const rolesDir = config.rolesDir ?? defaultRolesDir()
   const store = new RoleStore(rolesDir)
+  const families = createFamilyLibrary(new RoleStore(join(rolesDir, 'families')), store)
+  for (const skill of ORCHESTRATION_SKILLS) {
+    ctx.skills.register({ ...skill, invocation: { modelInvocable: true, userInvocable: true } })
+  }
+  const reviewRequests = new Map()
+  let reviewSequence = 0
+  const getReviewRequest = sessionId => {
+    const request = reviewRequests.get(sessionId)
+    if (request?.expires > Date.now()) return request
+    reviewRequests.delete(sessionId)
+    return undefined
+  }
   const history = createHistory({ limit: 20 })
   let pending = Promise.resolve()
   function serialize(work) {
@@ -373,6 +410,83 @@ export function apply(ctx, config = {}) {
 
   ctx.tools.register(tool)
 
+  const applyFamily = (input, family) => api.applyFamily(input, role => mergeFamily(role, family, input.target))
+  const familyFor = async query => {
+    const matches = (await families.list()).filter(item => item.id === query || item.name === query)
+    if (matches.length !== 1) throw new RoleGraphError('FAMILY_LOOKUP', 'Use a unique family ID from role_family list.')
+    return matches[0]
+  }
+  const graphToolsOutput = {
+    schema: { type: 'object', additionalProperties: true },
+    render: (_args, value) => [{ type: 'text', text: JSON.stringify(value, null, 2) }],
+  }
+  ctx.tools.register(defineTool({
+    name: 'role_family',
+    description: 'List, inspect, create, update, or apply reusable Skill Loom ability families.',
+    parameters: {
+      action: { type: 'string', required: true, description: 'list | show | create | update | apply' },
+      family: { type: 'string', description: 'Ability family ID or unique display name.' },
+      name: { type: 'string', description: 'Ability family display name.' },
+      description: { type: 'string', description: 'Short summary, at most 160 characters.' },
+      members: { type: 'array', items: { type: 'string' }, description: 'Complete skill membership for a new or edited graph.' },
+      edges: { type: 'array', items: {
+        type: 'object', additionalProperties: false,
+        properties: {
+          from: { type: 'string', required: true }, to: { type: 'string', required: true },
+          why: { type: 'string', required: true },
+        },
+      }, description: 'Complete requires edges, each with a reason of at most 80 characters.' },
+      role: { type: 'string', description: 'Destination role ID or display name for apply.' },
+      target: { type: 'string', description: 'Optional skill in the destination role. Omit to attach at the role root.' },
+      revision: { type: 'number', description: 'Current family revision required for update.' },
+    },
+    output: graphToolsOutput,
+    execute(args) {
+      return serialize(async () => {
+        if (args.action === 'list') return { families: await families.list() }
+        const family = args.action === 'create' ? undefined : await familyFor(args.family)
+        if (args.action === 'show') return { family }
+        if (args.action === 'apply') {
+          const role = await api.resolve(args.role)
+          return await applyFamily({ role: role.id, expectedRevision: role.revision, target: args.target }, family)
+        }
+        if (args.action !== 'create' && args.action !== 'update') throw new Error('Unknown role_family action')
+        const graph = args.members === undefined && args.edges === undefined
+          ? undefined : { members: args.members, edges: args.edges }
+        if (graph && (!Array.isArray(graph.edges) || graph.edges.some(edge => typeof edge?.why !== 'string'
+          || !edge.why.trim() || edge.why.trim().length > 80))) throw new Error('Every dependency needs a reason of 1–80 characters.')
+        if (!family && !graph) throw new Error('Provide members and edges to create a family.')
+        return { family: await families.change({
+          action: args.action, id: family?.id, name: args.name ?? family?.name,
+          description: args.description, expectedRevision: args.revision, graph,
+        }) }
+      })
+    },
+  }))
+
+  ctx.tools.register(defineTool({
+    name: 'role_review',
+    description: 'Open Skill Loom in the current DSH Web conversation sidebar for the user to inspect a saved role or ability family.',
+    parameters: {
+      role: { type: 'string', description: 'Saved role ID or display name.' },
+      family: { type: 'string', description: 'Saved ability family ID or unique display name.' },
+    },
+    output: graphToolsOutput,
+    async execute(args, exec) {
+      const sessionId = sessionIdOf(exec.agent)
+      if (sessionId === undefined) throw new Error('A DSH session is required.')
+      if (!!args.role === !!args.family) throw new Error('Provide exactly one role or family.')
+      const role = args.role ? await api.resolve(args.role) : undefined
+      const family = args.family ? await familyFor(args.family) : undefined
+      const request = {
+        ticket: Date.now() + '-' + ++reviewSequence, roleId: role?.id, familyId: family?.id,
+        expires: Date.now() + 300_000,
+      }
+      reviewRequests.set(sessionId, request)
+      return { queued: true, surface: 'DSH Web conversation sidebar', name: role?.name ?? family.name }
+    },
+  }))
+
   const roleSpawn = defineTool({
     name: 'role_spawn',
     description: 'Spawn a subagent that runs under a named role instead of inheriting the caller role. Use the native subagent tool when no role is needed.',
@@ -437,6 +551,18 @@ export function apply(ctx, config = {}) {
     handler: toNodeHandler(createResource({
       store: trackedStore,
       mutate: input => serialize(() => api.handle(input, { expectedRevision: input.expectedRevision, source: 'human' })),
+      families: {
+        list: families.list,
+        change: input => serialize(() => families.change(input)),
+        insert: input => serialize(() => api.applyFamily(input, async role => {
+          const family = await families.read(input.familyId)
+          if (family === undefined) throw new RoleGraphError('FAMILY_NOT_FOUND', '能力族不存在')
+          if (!family.builtin && family.revision !== input.familyRevision) {
+            throw new RoleConflictError(family.id, input.familyRevision, family.revision)
+          }
+          return mergeFamily(role, family, input.target)
+        })),
+      },
       // Union of the global layer and every live agent scope: the editor must
       // not report a preset-mounted skill as missing just because no agent is
       // answering an HTTP request.
@@ -458,6 +584,7 @@ export function apply(ctx, config = {}) {
         redo: (id, revision) => serialize(() => restoreRole(id, 'redo', revision)),
       },
       sessions: {
+        review: getReviewRequest,
         list: async () => {
           const rows = []
           for (const agent of ctx.agents.list()) {
@@ -513,7 +640,10 @@ export function apply(ctx, config = {}) {
     if (agent === undefined) return
     disposedAgents.add(agent)
     const sessionId = sessionIdOf(agent)
-    if (sessionId !== undefined) disposeSession(sessionId)
+    if (sessionId !== undefined) {
+      reviewRequests.delete(sessionId)
+      disposeSession(sessionId)
+    }
   })
 
   // A reload must not lose roles: existing agents never fire `agent/created`
@@ -538,6 +668,7 @@ export function apply(ctx, config = {}) {
     return () => {
       active = false
       rebuild.cancel()
+      reviewRequests.clear()
       for (const sessionId of [...generations.keys()]) disposeSession(sessionId)
     }
   }, 'skill-loom: restore bound roles and release generations')

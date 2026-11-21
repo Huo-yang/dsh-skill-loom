@@ -13,7 +13,7 @@
  * @module dsh-skill-loom/http
  */
 
-import { computeHealth, explainMissing, planRole } from './graph.js'
+import { computeHealth, explainMissing, planRole, topoLevels } from './graph.js'
 
 /** Prefix every route lives under. */
 export const ROUTE_PREFIX = '/skill-loom'
@@ -22,8 +22,9 @@ export const ROUTE_PREFIX = '/skill-loom'
 export const MAX_BODY_BYTES = 64 * 1024
 
 /** The only actions the browser may perform, per route. */
+const GRAPH_ACTIONS = new Set(['set_graph'])
 const MEMBER_ACTIONS = new Set(['add_members', 'remove_members'])
-const FIELD_ACTIONS = new Set(['set_name', 'set_persona'])
+const FIELD_ACTIONS = new Set(['set_name', 'set_description', 'set_persona'])
 const EDGE_ACTIONS = new Set(['link', 'unlink', 'reparent'])
 
 const json = (body, status = 200) => new Response(JSON.stringify(body), {
@@ -61,6 +62,7 @@ function summarize(role, repo, exists) {
     id: role.id,
     name: role.name,
     icon: role.icon,
+    description: role.description,
     persona: typeof role.persona?.prefix === 'string' ? role.persona.prefix : undefined,
     members: role.members ?? [],
     edges: role.edges ?? [],
@@ -84,7 +86,7 @@ function summarize(role, repo, exists) {
  * @param {(input: object) => Promise<object>} [deps.mutate] - action dispatch (agent action layer).
  * @returns {(request: Request) => Promise<Response>} the resource.
  */
-export function createResource({ store, catalog, exists, mutate, sessions, history }) {
+export function createResource({ store, catalog, exists, mutate, sessions, history, families }) {
   async function readBody(request) {
     const declared = Number(request.headers.get('content-length') ?? '0')
     if (Number.isFinite(declared) && declared > MAX_BODY_BYTES) return { tooLarge: true }
@@ -94,6 +96,27 @@ export function createResource({ store, catalog, exists, mutate, sessions, histo
       return { value: JSON.parse(text) }
     } catch {
       return { invalid: true }
+    }
+  }
+
+  async function writeFamily(request, operation) {
+    if (!isLocalOrigin(request)) return json({ error: 'cross-origin' }, 403)
+    const body = await readBody(request)
+    if (body.tooLarge === true) return json({ error: 'body-too-large' }, 413)
+    if (body.invalid === true || body.value === null || typeof body.value !== 'object') {
+      return json({ error: 'invalid-body' }, 400)
+    }
+    try {
+      return json({ ok: true, result: await operation(body.value) })
+    } catch (error) {
+      if (error?.name === 'RoleConflictError') {
+        return json({ error: 'conflict', message: '角色或能力族已更新，请刷新后重试' }, 409)
+      }
+      if (error?.name === 'RoleGraphError' || error?.name === 'RoleValidationError') {
+        const details = error.details?.issues?.map(issue => issue.message).join('；')
+        return json({ error: 'rejected', code: error.code, message: details || error.message }, 400)
+      }
+      throw error
     }
   }
 
@@ -113,7 +136,10 @@ export function createResource({ store, catalog, exists, mutate, sessions, histo
     try {
       const expectedRevision = typeof input.expectedRevision === 'number' ? input.expectedRevision : undefined
       let payload
-      if (MEMBER_ACTIONS.has(action)) {
+      if (GRAPH_ACTIONS.has(action)) {
+        payload = { action, role: id, members: input.members, edges: input.edges,
+          preview: input.preview === true, expectedRevision }
+      } else if (MEMBER_ACTIONS.has(action)) {
         payload = {
           action,
           role: id,
@@ -123,6 +149,7 @@ export function createResource({ store, catalog, exists, mutate, sessions, histo
         }
       } else if (FIELD_ACTIONS.has(action)) {
         payload = { action, role: id, name: input.name, persona: input.persona, expectedRevision }
+        if (action === 'set_description') payload.description = input.description
       } else {
         payload = {
           action,
@@ -158,6 +185,26 @@ export function createResource({ store, catalog, exists, mutate, sessions, histo
     const rest = path.slice(ROUTE_PREFIX.length).replace(/^\//, '')
 
     try {
+      if (rest === 'families') {
+        if (families === undefined) return json({ error: 'families-unavailable' }, 404)
+        if (method === 'POST') return await writeFamily(request, families.change)
+        const [items, repo] = await Promise.all([families.list(), catalog()])
+        return json({ families: items.map(family => ({
+          ...family,
+          preview: {
+            members: family.members,
+            levels: Object.fromEntries(topoLevels(family)),
+            ...computeHealth(family, repo),
+          },
+        })) })
+      }
+      const familyInsert = /^roles\/([^/]+)\/families$/.exec(rest)
+      if (familyInsert !== null) {
+        if (families === undefined) return json({ error: 'families-unavailable' }, 404)
+        if (method !== 'POST') return json({ error: 'method-not-allowed' }, 405)
+        const role = decodeURIComponent(familyInsert[1])
+        return await writeFamily(request, input => families.insert({ ...input, role }))
+      }
       const repo = await catalog()
 
       if (rest === '' || rest === 'roles') {
@@ -194,6 +241,14 @@ export function createResource({ store, catalog, exists, mutate, sessions, histo
         })
       }
 
+      if (rest === 'sessions/review') {
+        if (method === 'POST') return json({ error: 'method-not-allowed' }, 405)
+        if (typeof sessions?.review !== 'function') return json({ error: 'sessions-unavailable' }, 405)
+        const sessionId = url.searchParams.get('session')
+        if (!sessionId) return json({ error: 'session-required' }, 400)
+        return json({ request: sessions.review(sessionId) ?? null })
+      }
+
       if (rest === 'sessions') {
         if (typeof sessions?.list !== 'function') return json({ error: 'sessions-unavailable' }, 405)
         if (method === 'POST') return json({ error: 'method-not-allowed' }, 405)
@@ -220,6 +275,12 @@ export function createResource({ store, catalog, exists, mutate, sessions, histo
         const role = await store.read(roleId)
         if (role === undefined) return json({ error: 'role-not-found', id: roleId }, 404)
         return json({ ok: true, result: await sessions.bind(sessionId, role) })
+      }
+
+      const graphMatch = /^roles\/([^/]+)\/graph$/.exec(rest)
+      if (graphMatch !== null) {
+        if (method === 'POST') return await write(request, decodeURIComponent(graphMatch[1]), GRAPH_ACTIONS)
+        return json({ error: 'method-not-allowed' }, 405)
       }
 
       const memberMatch = /^roles\/([^/]+)\/members$/.exec(rest)
