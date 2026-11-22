@@ -1,0 +1,192 @@
+name: Publish verified Loom Release to npm
+
+on:
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: 'Existing public stable GitHub Release tag (for example v0.1.1)'
+        required: true
+        type: string
+      sha256:
+        description: 'Independently verified SHA-256 of the Release .tgz'
+        required: true
+        type: string
+      publish:
+        description: 'Publish to npm after preflight and environment approval (unchecked = preflight only)'
+        required: true
+        default: false
+        type: boolean
+
+permissions: {}
+
+concurrency:
+  group: npm-publish
+  cancel-in-progress: false
+
+jobs:
+  preflight:
+    if: github.repository == 'Huo-yang/dsh-skill-loom' && github.ref == format('refs/heads/{0}', github.event.repository.default_branch)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      actions: read
+      contents: read
+    outputs:
+      version: ${{ steps.verify.outputs.version }}
+      sha256: ${{ steps.verify.outputs.sha256 }}
+    steps:
+      - name: Verify release tag, CI and exact package
+        id: verify
+        shell: bash
+        env:
+          TAG: ${{ inputs.release_tag }}
+          EXPECTED_SHA256: ${{ inputs.sha256 }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          repo=Huo-yang/dsh-skill-loom
+          package=@huo-yang/dsh-skill-loom
+          [[ "$TAG" =~ ^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]]
+          [[ "$EXPECTED_SHA256" =~ ^[0-9a-f]{64}$ ]]
+          version=${TAG#v}
+          asset="huo-yang-dsh-skill-loom-$version.tgz"
+
+          commit=$(gh api "repos/$repo/commits/$TAG" --jq '.sha')
+          [[ "$commit" =~ ^[0-9a-f]{40}$ ]]
+          if [[ "$TAG" == v0.1.1 ]]; then
+            [[ "$commit" == 4679bfa27ed6c2a9bc543110d804407354c44958 ]]
+            [[ "$EXPECTED_SHA256" == 7422a72ae9fd272f51bdd142a4a9d735d5c9d4f4c158e13c55f0151f896321b1 ]]
+          fi
+
+          for gate in ci.yml release.yml; do
+            gh api -X GET "repos/$repo/actions/workflows/$gate/runs" \
+              -f head_sha="$commit" -f event=push -f status=success -F per_page=100 |
+              jq -e --arg tag "$TAG" --arg sha "$commit" \
+                'any(.workflow_runs[]; .head_branch == $tag and .head_sha == $sha and .conclusion == "success")' >/dev/null
+          done
+
+          gh api "repos/$repo/releases/tags/$TAG" |
+            jq -e --arg tag "$TAG" --arg name "$asset" --arg digest "sha256:$EXPECTED_SHA256" '
+              .tag_name == $tag and .draft == false and .prerelease == false and
+              ([.assets[] | select(.name == $name)] |
+                length == 1 and .[0].state == "uploaded" and .[0].digest == $digest and
+                .[0].size > 0 and .[0].size <= 10485760)
+            ' >/dev/null
+
+          work="$RUNNER_TEMP/npm-preflight"
+          mkdir "$work"
+          gh release download "$TAG" --repo "$repo" --pattern "$asset" --dir "$work"
+          printf '%s  %s\n' "$EXPECTED_SHA256" "$work/$asset" | sha256sum --check --strict
+          mv "$work/$asset" "$work/package.tgz"
+
+          python3 -I - "$work/package.tgz" "$package" "$version" <<'PY'
+          import json, pathlib, sys, tarfile
+          path, package, version = sys.argv[1:]
+          with tarfile.open(path, 'r:gz') as tar:
+              manifest = None
+              paths = set()
+              size = 0
+              for count, member in enumerate(tar, 1):
+                  parts = pathlib.PurePosixPath(member.name).parts
+                  assert parts and parts[0] == 'package' and '..' not in parts
+                  assert member.isdir() or member.isfile()
+                  assert parts not in paths
+                  paths.add(parts)
+                  size += member.size
+                  assert count <= 10000 and size <= 50 * 1024 * 1024
+                  if parts == ('package', 'package.json'):
+                      assert member.isfile() and member.size <= 262144
+                      manifest = json.load(tar.extractfile(member))
+          assert manifest is not None
+          assert manifest['name'] == package and manifest['version'] == version
+          assert manifest['repository']['url'] == 'git+https://github.com/Huo-yang/dsh-skill-loom.git'
+          assert manifest.get('private') is not True
+          publish_config = manifest.get('publishConfig', {})
+          assert set(publish_config) <= {'access', 'registry'}
+          assert publish_config.get('access', 'public') == 'public'
+          assert publish_config.get('registry', 'https://registry.npmjs.org/').rstrip('/') == 'https://registry.npmjs.org'
+          PY
+
+          curl --proto '=https' --fail --silent --show-error --retry 2 --max-time 30 \
+            -H 'Accept: application/vnd.npm.install-v1+json' \
+            'https://registry.npmjs.org/@huo-yang%2fdsh-skill-loom' |
+            jq -e --arg target "$version" '
+              def stable: test("^(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)$");
+              def parts: split(".") | map(tonumber);
+              (.versions | type == "object" and (has($target) | not)) and
+              (."dist-tags".latest | stable and ((. | parts) < ($target | parts))) and
+              all(.versions | keys[] | select(stable); (. | parts) < ($target | parts))
+            ' >/dev/null
+
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "sha256=$EXPECTED_SHA256" >> "$GITHUB_OUTPUT"
+          printf 'Verified `%s@%s`, release `%s`, commit `%s`, SHA-256 `%s`.\n' \
+            "$package" "$version" "$TAG" "$commit" "$EXPECTED_SHA256" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Hand off the verified bytes
+        if: inputs.publish
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+        with:
+          name: verified-npm-package
+          path: ${{ runner.temp }}/npm-preflight/package.tgz
+          if-no-files-found: error
+          retention-days: 1
+
+  publish:
+    if: inputs.publish
+    needs: preflight
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    environment: npm-publish
+    permissions:
+      id-token: write
+    steps:
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: '24'
+          registry-url: 'https://registry.npmjs.org'
+          package-manager-cache: false
+
+      - uses: actions/download-artifact@018cc2cf5baa6db3ef3c5f8a56943fffe632ef53 # v6
+        with:
+          name: verified-npm-package
+          path: ${{ runner.temp }}/npm-publish
+
+      - name: Publish exact package through npm Trusted Publishing
+        shell: bash
+        env:
+          VERSION: ${{ needs.preflight.outputs.version }}
+          EXPECTED_SHA256: ${{ needs.preflight.outputs.sha256 }}
+        run: |
+          set -euo pipefail
+          [[ "$VERSION" =~ ^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]]
+          [[ "$EXPECTED_SHA256" =~ ^[0-9a-f]{64}$ ]]
+          cd "$RUNNER_TEMP/npm-publish"
+          printf '%s  package.tgz\n' "$EXPECTED_SHA256" | sha256sum --check --strict
+          node -e 'const [major, minor, patch] = process.argv[1].split(".").map(Number); if (major < 11 || (major === 11 && (minor < 5 || (minor === 5 && patch < 1)))) process.exit(1)' "$(npm --version)"
+
+          registry_url='https://registry.npmjs.org/@huo-yang%2fdsh-skill-loom'
+          curl --proto '=https' --fail --silent --show-error --retry 2 --max-time 30 \
+            -H 'Accept: application/vnd.npm.install-v1+json' "$registry_url" |
+            jq -e --arg target "$VERSION" '
+              def stable: test("^(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)$");
+              def parts: split(".") | map(tonumber);
+              (.versions | type == "object" and (has($target) | not)) and
+              (."dist-tags".latest | stable and ((. | parts) < ($target | parts))) and
+              all(.versions | keys[] | select(stable); (. | parts) < ($target | parts))
+            ' >/dev/null
+
+          npm publish ./package.tgz --registry=https://registry.npmjs.org --access public --tag latest --ignore-scripts
+          sri="sha512-$(openssl dgst -sha512 -binary package.tgz | openssl base64 -A)"
+          for attempt in {1..6}; do
+            if curl --proto '=https' --fail --silent --show-error --max-time 15 \
+              -H 'Cache-Control: no-cache' "$registry_url/latest" |
+              jq -e --arg name '@huo-yang/dsh-skill-loom' --arg v "$VERSION" --arg sri "$sri" \
+                '.name == $name and .version == $v and .dist.integrity == $sri' >/dev/null; then
+              printf 'Verified npm latest and registry integrity for `@huo-yang/dsh-skill-loom@%s`.\n' "$VERSION" >> "$GITHUB_STEP_SUMMARY"
+              exit 0
+            fi
+            sleep 5
+          done
+          echo 'Publish command succeeded, but registry verification is still pending. Inspect the version before retrying.' >&2
+          exit 1
