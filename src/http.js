@@ -252,6 +252,12 @@ export function createResource({ store, catalog, exists, mutate, sessions, histo
       if (rest === 'sessions') {
         if (typeof sessions?.list !== 'function') return json({ error: 'sessions-unavailable' }, 405)
         if (method === 'POST') return json({ error: 'method-not-allowed' }, 405)
+        const sessionId = url.searchParams.get('session')
+        if (sessionId !== null) {
+          if (typeof sessions.getRole !== 'function') return json({ error: 'sessions-unavailable' }, 405)
+          if (!sessionId) return json({ error: 'session-required' }, 400)
+          return json({ roleId: await sessions.getRole(sessionId) ?? null })
+        }
         return json({ sessions: await sessions.list() })
       }
 
@@ -365,6 +371,7 @@ export function createResource({ store, catalog, exists, mutate, sessions, histo
       if (error?.name === 'RoleConflictError') {
         return json({ error: 'conflict', current: await store.read(error.id) }, 409)
       }
+      if (error?.code === 'SESSION_BUSY') return json({ error: 'session-busy' }, 409)
       if (error?.code === 'ROLE_NOT_FOUND') return json({ error: 'role-not-found' }, 404)
       return json({ error: 'internal', message: String(error?.message ?? error) }, 500)
     }

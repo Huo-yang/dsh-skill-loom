@@ -585,6 +585,7 @@ export function apply(ctx, config = {}) {
       },
       sessions: {
         review: getReviewRequest,
+        getRole: sessionId => bindings.get(sessionId),
         list: async () => {
           const rows = []
           for (const agent of ctx.agents.list()) {
@@ -602,11 +603,17 @@ export function apply(ctx, config = {}) {
           const role = await store.read(selected.id)
           if (role === undefined) throw new RoleGraphError('ROLE_NOT_FOUND', 'the role was deleted')
           const agent = ctx.agents.get(sessionId)
+          if (agent?.status === 'running') throw new RoleGraphError('SESSION_BUSY', 'the session is running')
           if (agent === undefined) await bindings.set(sessionId, role.id)
           const installed = agent === undefined ? undefined : await install(agent, sessionId, role, true)
           return { sessionId, roleId: role.id, live: installed !== undefined }
         }),
-        unbind: sessionId => serialize(async () => ({ sessionId, cleared: await unbind(sessionId) })),
+        unbind: sessionId => serialize(async () => {
+          if (ctx.agents.get(sessionId)?.status === 'running') {
+            throw new RoleGraphError('SESSION_BUSY', 'the session is running')
+          }
+          return { sessionId, cleared: await unbind(sessionId) }
+        }),
       },
     })),
   }), 'skill-loom: http routes'))

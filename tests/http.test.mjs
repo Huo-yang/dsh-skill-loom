@@ -358,6 +358,7 @@ test('edge actions are not accepted on the member route', async () => {
 
 const sessionsDep = () => ({
   list: async () => [{ sessionId: 'sess_1', roleId: UUID_A }, { sessionId: 'sess_2' }],
+  getRole: async sessionId => sessionId === 'cold/session' ? UUID_A : undefined,
   bind: async (sessionId, role) => ({ sessionId, roleId: role.id, live: false }),
   unbind: async sessionId => ({ sessionId, cleared: true }),
 })
@@ -372,6 +373,29 @@ test('the session list comes from the host hook', async () => {
   assert.equal(response.status, 200)
   const body = await response.json()
   assert.deepEqual(body.sessions.map(row => row.sessionId), ['sess_1', 'sess_2'])
+})
+
+test('a single-session lookup reads a stored binding even outside the live session list', async () => {
+  const handler = createResource({ store: storeOf(role()), catalog: catalogOf({}), sessions: sessionsDep() })
+  const assigned = await handler(get('/skill-loom/sessions?session=cold%2Fsession'))
+  assert.equal(assigned.status, 200)
+  assert.deepEqual(await assigned.json(), { roleId: UUID_A })
+  const unassigned = await handler(get('/skill-loom/sessions?session=none'))
+  assert.deepEqual(await unassigned.json(), { roleId: null })
+  assert.equal((await handler(get('/skill-loom/sessions?session='))).status, 400)
+})
+
+test('the bind and unbind routes report an upstream busy-state rejection', async () => {
+  const assertNotRunning = async () => { throw Object.assign(new Error('running'), { code: 'SESSION_BUSY' }) }
+  const handler = createResource({
+    store: storeOf(role()), catalog: catalogOf({}),
+    sessions: { ...sessionsDep(), bind: assertNotRunning, unbind: assertNotRunning },
+  })
+  for (const route of ['bind', 'unbind']) {
+    const response = await handler(post('/skill-loom/sessions/' + route, { sessionId: 'live', roleId: UUID_A }))
+    assert.equal(response.status, 409)
+    assert.deepEqual(await response.json(), { error: 'session-busy' })
+  }
 })
 
 test('binding a session resolves the role before calling the hook', async () => {
