@@ -1,10 +1,14 @@
-<h1 align="center">Skill Loom</h1>
+<h1 align="center">dsh-skill-loom</h1>
+
+<p align="center">为 DSH Web 提供可视化技能编排，把技能和前置依赖组织成角色</p>
+
+<p align="center">将常用技能及其依赖保存为能力族，在不同角色间复用</p>
+
+<p align="center">会话绑定角色后应用人设，只向 Agent 提供角色中依赖完整的技能，精简上下文</p>
 
 <p align="center"><a href="https://www.npmjs.com/package/@huo-yang/dsh-skill-loom"><img src="https://img.shields.io/npm/v/@huo-yang/dsh-skill-loom" alt="npm 版本"></a> <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue" alt="MIT 许可证"></a> <img src="https://img.shields.io/badge/Node.js-22%2B-brightgreen" alt="Node.js 22 或更新版本"></p>
 
 <p align="center"><strong>简体中文</strong> · <a href="README.en.md">English</a></p>
-
-Skill Loom 把技能组织成可视化角色和可复用的能力族。把角色绑定到 DSH 会话后，可用技能目录只包含该角色中依赖完整的技能。Agent 因此能用更短的上下文了解当前能力，人也能在画布上看清技能之间的前置条件。
 
 ## 功能
 

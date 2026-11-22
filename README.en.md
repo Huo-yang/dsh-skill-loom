@@ -1,10 +1,14 @@
-<h1 align="center">Skill Loom</h1>
+<h1 align="center">dsh-skill-loom</h1>
+
+<p align="center">Build roles visually in DSH Web by arranging skills and their prerequisites</p>
+
+<p align="center">Save related skills and their dependencies as ability families you can reuse across roles</p>
+
+<p align="center">Bind a role to a session to apply its persona and keep the skill context focused on skills whose dependencies are available</p>
 
 <p align="center"><a href="https://www.npmjs.com/package/@huo-yang/dsh-skill-loom"><img src="https://img.shields.io/npm/v/@huo-yang/dsh-skill-loom" alt="npm version"></a> <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue" alt="MIT license"></a> <img src="https://img.shields.io/badge/Node.js-22%2B-brightgreen" alt="Node.js 22 or later"></p>
 
 <p align="center"><a href="README.md">简体中文</a> · <strong>English</strong></p>
-
-Skill Loom organizes skills into visual roles and reusable ability families. A DSH session bound to a role sees only the skills in that role whose dependencies are healthy. This keeps the skill context smaller and makes prerequisites visible to both the agent and the person editing the graph.
 
 ## Features
 

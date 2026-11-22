@@ -70,8 +70,8 @@ const PARAMETERS = {
 
 /** Skills shipped as Markdown next to the code, so each one has a real file path. */
 const BUNDLED_SKILLS = [
-  { name: 'skill-loom-orchestrate', file: '../skill/skill-loom-orchestrate/SKILL.md' },
-  { name: 'skill-loom-review', file: '../skill/skill-loom-review/SKILL.md' },
+  { name: 'skill-loom-orchestrate', file: '../skills/skill-loom-orchestrate/SKILL.md' },
+  { name: 'skill-loom-review', file: '../skills/skill-loom-review/SKILL.md' },
 ]
 
 /**
