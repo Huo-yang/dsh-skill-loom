@@ -20,7 +20,9 @@
 
 import { existsSync } from 'node:fs'
 import { homedir } from 'node:os'
+import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
+import { fileURLToPath } from 'node:url'
 
 import { defineTool } from '@deepseek-ai/dsh-tools'
 import { PERSONA_PREFIX_SECTION } from '@deepseek-ai/dsh-system-prompt'
@@ -66,28 +68,32 @@ const PARAMETERS = {
   why: { type: 'string', description: 'Why the edge exists. Required for agent-created edges, <= 80 chars.' },
 }
 
-const ORCHESTRATION_SKILLS = [
-  {
-    name: 'skill-loom-orchestrate',
-    description: '按用户目标整理技能，创建或更新 DSH 角色与能力族。',
-    content: [
-      '用 role_graph(action="list") 读取角色与技能目录。只选目录中能完成任务的技能。',
-      '用 role_graph 的 create、add_members、link 编排角色。只有确实需要另一个技能时才建依赖；from 是使用者，to 是它依赖的技能，why 写明具体理由。',
-      '更新已有角色前先 show。用 role_graph 的 plan 或 show 检查 runtime、red 和 gray。不要用缺失技能凑齐能力。',
-      '用 role_family(action="list") 查找能力族。用 create 建独立能力族，用 show 取得 revision 后再 update，用 apply 将能力族合入角色。',
-      '完成配置后，加载 skill-loom-review，在当前 DSH 会话打开技能编排侧栏供用户检查。',
-    ].join('\n'),
-  },
-  {
-    name: 'skill-loom-review',
-    description: '检查角色或能力族的编排结果，并打开当前 DSH 会话的技能编排侧栏。',
-    content: [
-      '用 role_graph(show) 或 role_family(show) 核对刚保存的技能和依赖，指出缺失或被阻断的技能。',
-      '在最终回复前调用 role_review。检查角色传 role，检查能力族传 family，二选一。',
-      '用简短文字说明改动和仍需用户确认的选择。已有角色、会话绑定与用户数据只按用户要求修改。',
-    ].join('\n'),
-  },
+/** Skills shipped as Markdown next to the code, so each one has a real file path. */
+const BUNDLED_SKILLS = [
+  { name: 'skill-loom-orchestrate', file: '../skill/skill-loom-orchestrate/SKILL.md' },
+  { name: 'skill-loom-review', file: '../skill/skill-loom-review/SKILL.md' },
 ]
+
+/**
+ * Read one bundled SKILL.md and split its frontmatter from its body.
+ * @param {string} file - absolute path to the Markdown file.
+ * @returns {{ name: string, description: string, content: string, path: string }} the registration.
+ */
+function loadBundledSkill(file) {
+  const raw = readFileSync(file, 'utf8')
+  const match = /^---\r?\n([\s\S]*?)\r?\n---\r?\n?([\s\S]*)$/.exec(raw)
+  if (match === null) throw new Error(`skill frontmatter is missing: ${file}`)
+  const fields = {}
+  for (const line of match[1].split(/\r?\n/)) {
+    const separator = line.indexOf(':')
+    if (separator < 0) continue
+    fields[line.slice(0, separator).trim()] = line.slice(separator + 1).trim()
+  }
+  if (typeof fields.name !== 'string' || fields.name === '' || typeof fields.description !== 'string') {
+    throw new Error(`skill frontmatter must declare name and description: ${file}`)
+  }
+  return { name: fields.name, description: fields.description, content: match[2].trim(), path: file }
+}
 
 /**
  * Mount the plugin.
@@ -98,8 +104,14 @@ export function apply(ctx, config = {}) {
   const rolesDir = config.rolesDir ?? defaultRolesDir()
   const store = new RoleStore(rolesDir)
   const families = createFamilyLibrary(new RoleStore(join(rolesDir, 'families')), store)
-  for (const skill of ORCHESTRATION_SKILLS) {
-    ctx.skills.register({ ...skill, invocation: { modelInvocable: true, userInvocable: true } })
+  for (const entry of BUNDLED_SKILLS) {
+    const skill = loadBundledSkill(fileURLToPath(new URL(entry.file, import.meta.url)))
+    ctx.skills.register({
+      ...skill,
+      // The path is real, so the editor can offer to open this skill's folder.
+      source: 'bundled',
+      invocation: { modelInvocable: true, userInvocable: true },
+    })
   }
   const reviewRequests = new Map()
   let reviewSequence = 0

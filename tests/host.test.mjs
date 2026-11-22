@@ -172,7 +172,9 @@ test('live edits refresh the bound agent and an unsuccessful bind preserves its 
     const preset = (await familyTool({ action: 'show', family: 'builtin-role-orchestration' })).family
     assert.deepEqual(preset.members, ['skill-loom-orchestrate', 'skill-loom-review'])
     for (const name of preset.members) {
-      assert.equal(packagedSkills.get(name).invocation.modelInvocable, true)
+      const skill = packagedSkills.get(name)
+      assert.equal(skill.source, 'bundled')
+      assert.equal(skill.invocation.modelInvocable, true)
     }
     assert.match(packagedSkills.get('skill-loom-review').content, /role_review/)
     const created = (await familyTool({

@@ -227,6 +227,9 @@ button.loom-role-summary:hover { background: var(--dsw-alias-bg-multi-select, rg
   color: inherit; font: inherit; font-size: 13px; font-weight: 600; cursor: pointer;
 }
 .loom-family-toolbar .loom-family-new:disabled { opacity: .45; cursor: default; }
+.loom-graph-label { display: flex; align-items: center; height: 100%; overflow: hidden;
+  color: inherit; font-family: inherit; font-size: 12px; line-height: 13px; }
+.loom-graph-label > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .loom-graph-select-node:focus-visible > rect { stroke: currentColor; stroke-width: 2.5; }
 .loom-family-entries-list { display: flex; flex-wrap: wrap; gap: 5px; padding: 0; margin: 8px 0 0; list-style: none; }
 .loom-family-entry { min-width: 0; padding: 2px 7px; border-radius: var(--dsw-radius-sm, 6px);
@@ -677,14 +680,12 @@ button.loom-role-summary:hover { background: var(--dsw-alias-bg-multi-select, rg
               strokeWidth: isDropTarget || active || chosen ? 2 : 1,
               strokeDasharray: isDropTarget || availableTarget || implicit ? '5 3' : undefined,
             }),
-            h('title', { key: 'title' }, node.label + (implicit ? '（自动纳入的依赖）'
-              : role.entries?.includes(node.name) ? '（入口）' : '')),
+            h('title', { key: 'title' }, node.label + (implicit ? '（自动纳入的依赖）' : '')),
             h('circle', { key: 'dot', cx: 14, cy: NODE_H / 2, r: 4, fill: stateColor }),
-            h('text', {
-              key: 'label',
-              x: 26, y: NODE_H / 2 + 4, fontSize: 12, fill: 'currentColor',
-              style: { fontFamily: 'inherit' },
-            }, node.label.length > 17 ? `${node.label.slice(0, 16)}…` : node.label),
+            h('foreignObject', {
+              key: 'label', x: 26, y: 2, width: NODE_W - 34, height: NODE_H - 4,
+              style: { pointerEvents: 'none' }, 'aria-hidden': true,
+            }, h('div', { className: 'loom-graph-label' }, h('span', null, node.label))),
             preview || node.kind === 'role' ? null : h('circle', {
               key: 'port',
               cx: NODE_W + 7,
