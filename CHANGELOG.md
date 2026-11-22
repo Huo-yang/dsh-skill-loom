@@ -1,5 +1,15 @@
 # 更新记录 / Changelog
 
+## 0.1.3
+
+- 中英文 README 统一使用插件名，并在开头概括角色编排、能力族与会话技能范围。
+- 内置技能移至包内的 `skills/` 目录。
+
+### English
+
+- Both READMEs use the plugin name and open with a summary of role editing, ability families, and session skill scope.
+- Bundled skills now live under `skills/` in the package.
+
 ## 0.1.2
 
 - 技能编排界面和预置能力族跟随 DSH 的中英文设置。
