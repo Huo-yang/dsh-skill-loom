@@ -4,8 +4,21 @@ window.__ModuleLoader__.load({
     const React = require('react')
     const { createPortal } = require('react-dom')
     const h = React.createElement
-    const { useState, useEffect, useLayoutEffect, useCallback, useMemo, useRef, useId } = React
+    const { useState, useEffect, useLayoutEffect, useSyncExternalStore, useCallback, useMemo, useRef, useId } = React
 
+    let localeService
+    const subscribeLocale = listener => localeService?.subscribe(listener) ?? (() => {})
+    const localeSnapshot = () => localeService?.getSnapshot()
+    const t = (zh, en) => localeService?.resolveText({ zh, en }) ?? zh
+    const kindName = kind => kind === 'family' ? t('能力族', 'ability family')
+      : kind === 'skill' ? t('技能', 'skill') : t('角色', 'role')
+    const familyName = family => family.id === 'builtin-role-orchestration'
+      ? t(family.name, 'Skill Loom Assistant') : family.name
+    const familyDescription = family => family.id === 'builtin-role-orchestration'
+      ? t(family.description, 'Organize skill dependencies, manage roles and ability families, and open the conversation sidebar for review.')
+      : family.description
+
+    const FAMILY_SAVED = 'family-saved'
     const API = '/skill-loom'
     const NODE_W = 150
     const NODE_H = 34
@@ -586,7 +599,7 @@ button.loom-role-summary:hover { background: var(--dsw-alias-bg-multi-select, rg
         width: geom.width,
         height: geom.height,
         role: selection ? 'group' : 'img',
-        'aria-label': `${role.name} 的依赖图`,
+        'aria-label': t(role.name + ' 的依赖图', role.name + ' dependency graph'),
         // Without overflow: visible the root SVG clips to its viewBox, so a node
         // carried past the canvas edge simply disappears.
         style: { display: 'block', margin: '0 auto', touchAction: 'none', overflow: 'visible',
@@ -679,7 +692,7 @@ button.loom-role-summary:hover { background: var(--dsw-alias-bg-multi-select, rg
             style: { cursor: selectable || (node.kind === 'role' && onOpenRoot) ? 'pointer' : 'grab' },
             ...(selectable ? {
               className: 'loom-graph-select-node', role: 'button', tabIndex: 0,
-              'aria-label': node.name + (implicit ? '（自动纳入的依赖）' : ''),
+              'aria-label': node.name + (implicit ? t('（自动纳入的依赖）', '(automatically included prerequisite)') : ''),
               'aria-pressed': !!chosen,
               onClick: () => selection.toggle(node.name),
               onKeyDown: event => {
@@ -698,7 +711,7 @@ button.loom-role-summary:hover { background: var(--dsw-alias-bg-multi-select, rg
               strokeWidth: isDropTarget || active || chosen ? 2 : 1,
               strokeDasharray: isDropTarget || availableTarget || implicit ? '5 3' : undefined,
             }),
-            h('title', { key: 'title' }, node.label + (implicit ? '（自动纳入的依赖）' : '')),
+            h('title', { key: 'title' }, node.label + (implicit ? t('（自动纳入的依赖）', '(automatically included prerequisite)') : '')),
             h('circle', { key: 'dot', cx: 14, cy: NODE_H / 2, r: 4, fill: stateColor }),
             h('foreignObject', {
               key: 'label', x: 26, y: 2, width: NODE_W - 34, height: NODE_H - 4,
@@ -715,7 +728,7 @@ button.loom-role-summary:hover { background: var(--dsw-alias-bg-multi-select, rg
               strokeWidth: 1.2,
               style: { cursor: 'crosshair' },
               onPointerDown: beginDrag(node.name, 'add'),
-            }, h('title', null, '拖出以新增一条依赖（保留原有依赖）')),          ]),
+            }, h('title', null, t('拖出以新增一条依赖（保留原有依赖）', 'Drag to add a dependency'))),          ]),
         ])
       }))
     }
@@ -877,7 +890,7 @@ button.loom-role-summary:hover { background: var(--dsw-alias-bg-multi-select, rg
 
     function HistoryButtons({ pending, undo, redo, step, save, canSave, saving, showHistory = true }) {
       return h('div', { style: { display: 'flex', gap: 6 } }, (showHistory ? [
-        ['undo', '↶ 撤销', undo], ['redo', '↷ 重做', redo],
+        ['undo', t('↶ 撤销', '↶ Undo'), undo], ['redo', t('↷ 重做', '↷ Redo'), redo],
       ] : []).map(([direction, label, count]) => {
         const enabled = !pending && count > 0
         return h('button', {
@@ -889,7 +902,7 @@ button.loom-role-summary:hover { background: var(--dsw-alias-bg-multi-select, rg
       }).concat(save ? h('button', {
         key: 'save', type: 'button', style: { ...styles.button(canSave), marginLeft: 0, height: 24, padding: '0 8px' },
         disabled: !canSave, onClick: () => void save(),
-      }, saving ? '保存中…' : '保存') : []))
+      }, saving ? t('保存中…', 'Saving…') : t('保存', 'Save')) : []))
     }
 
     const DRAFT_STORAGE_KEY = 'dsh-skill-loom:editor-drafts:v1'
@@ -947,6 +960,7 @@ button.loom-role-summary:hover { background: var(--dsw-alias-bg-multi-select, rg
     }
 
     function RolePage({ compact = false, review } = {}) {
+      const language = useSyncExternalStore(subscribeLocale, localeSnapshot, localeSnapshot)
       const [restoredDrafts] = useState(readEditorDrafts)
       const [list, setList] = useState({ status: 'loading', roles: [], skills: [] })
       const [selectedRole, setSelectedRole] = useState(restoredDrafts.role?.id)
@@ -974,7 +988,7 @@ button.loom-role-summary:hover { background: var(--dsw-alias-bg-multi-select, rg
       const [familyDraft, setFamilyDraft] = useState(restoredDrafts.family)
       useLayoutEffect(() => persistEditorDrafts(roleWorkspace, familyDraft), [roleWorkspace, familyDraft])
       useEffect(() => {
-        if (restoredDrafts.role || restoredDrafts.family) setNotice('已恢复未保存的草稿')
+        if (restoredDrafts.role || restoredDrafts.family) setNotice(t('已恢复未保存的草稿', 'Unsaved draft restored'))
       }, [])
       const [extraction, setExtraction] = useState(undefined)
       const [draftSelection, setDraftSelection] = useState(undefined)
@@ -985,8 +999,8 @@ button.loom-role-summary:hover { background: var(--dsw-alias-bg-multi-select, rg
         ? familySelectionMembers(extraction.source, extraction.roots) : new Set(), [extraction])
       const draftPlan = useMemo(() => familyDraft && familyDraftPlan(familyDraft, list.skills), [familyDraft, list.skills])
       const draftGraph = useMemo(() => familyDraft && {
-        ...familyDraft, name: familyDraft.name.trim() || '新能力族', entries: draftPlan.entries,
-      }, [familyDraft, draftPlan])
+        ...familyDraft, name: familyDraft.name.trim() || t('新能力族', 'New ability family'), entries: draftPlan.entries,
+      }, [familyDraft, draftPlan, language])
       const [familyError, setFamilyError] = useState('')
       const [removalActive, setRemovalActive] = useState(false)
       const [roleMenu, setRoleMenu] = useState(false)
@@ -1096,7 +1110,7 @@ button.loom-role-summary:hover { background: var(--dsw-alias-bg-multi-select, rg
           if (!response.ok) throw new Error('HTTP ' + response.status)
           setFamilies((await response.json()).families.sort(byDisplayName))
         } catch (cause) {
-          setFamilyError('无法读取能力族：' + String(cause.message ?? cause))
+          setFamilyError(t('无法读取能力族：', 'Could not load ability families: ') + String(cause.message ?? cause))
         }
       }, [])
 
@@ -1141,7 +1155,7 @@ button.loom-role-summary:hover { background: var(--dsw-alias-bg-multi-select, rg
           if (payload.action === 'delete') {
             if (previewId === item.id) setPreviewId(undefined)
             if (current) setFamilyDraft(undefined)
-            setNotice('已删除能力族 ' + item.name)
+            setNotice(t('已删除能力族 ', 'Deleted ability family ') + item.name)
           } else if (current) {
             setFamilyDraft(draft => ({
               ...draft, name: saved.name, revision: saved.revision,
@@ -1214,7 +1228,7 @@ button.loom-role-summary:hover { background: var(--dsw-alias-bg-multi-select, rg
             }))
             setPreviewId(saved.id)
           }
-          setNotice('已保存能力族')
+          setNotice(FAMILY_SAVED)
         } catch (cause) {
           setError(String(cause.message ?? cause))
         } finally {
@@ -1231,7 +1245,7 @@ button.loom-role-summary:hover { background: var(--dsw-alias-bg-multi-select, rg
         if (extraction.roots.includes(name)) {
           setExtraction({ ...extraction, roots: extraction.roots.filter(root => root !== name) })
         } else if (extractionMembers.has(name)) {
-          setNotice('仍被所选技能依赖，无法单独取消：' + name)
+          setNotice(t('仍被所选技能依赖，无法单独取消：', 'Still required by a selected skill: ') + name)
         } else {
           setExtraction({ ...extraction, roots: [...extraction.roots, name] })
         }
@@ -1267,7 +1281,7 @@ button.loom-role-summary:hover { background: var(--dsw-alias-bg-multi-select, rg
         while (stack.length) {
           const name = stack.pop()
           if (name === from) {
-            setError('这条依赖会形成环')
+            setError(t('这条依赖会形成环', 'This dependency would create a cycle'))
             return
           }
           if (reachable.has(name)) continue
@@ -1333,7 +1347,7 @@ button.loom-role-summary:hover { background: var(--dsw-alias-bg-multi-select, rg
           const body = await response.json().catch(() => ({}))
           if (!response.ok) {
             throw new Error(body.error === 'conflict'
-              ? '这个角色刚被别处修改过，请刷新后再操作'
+              ? t('这个角色刚被别处修改过，请刷新后再操作', 'This role changed elsewhere. Refresh and try again.')
               : (body.message ?? body.code ?? body.error ?? `HTTP ${response.status}`))
           }
           await Promise.all([loadList(), role.id === selectedRole ? loadDetail(role.id) : undefined])
@@ -1367,7 +1381,7 @@ button.loom-role-summary:hover { background: var(--dsw-alias-bg-multi-select, rg
           setRoleMenu(false)
           await loadList()
           if (body.role !== undefined) requestRoleSwitch(body.role)
-          setNotice('已创建角色 ' + name)
+          setNotice(t('已创建角色 ', 'Created role ') + name)
         } catch (cause) {
           setError(String(cause?.message ?? cause))
         } finally {
@@ -1387,7 +1401,7 @@ button.loom-role-summary:hover { background: var(--dsw-alias-bg-multi-select, rg
           const body = await response.json().catch(() => ({}))
           if (!response.ok) {
             throw new Error(body.error === 'conflict'
-              ? '这个角色刚被别处修改过，请刷新后再操作'
+              ? t('这个角色刚被别处修改过，请刷新后再操作', 'This role changed elsewhere. Refresh and try again.')
               : (body.message ?? body.error ?? 'HTTP ' + response.status))
           }
           if (selectedRole === item.id) {
@@ -1397,7 +1411,7 @@ button.loom-role-summary:hover { background: var(--dsw-alias-bg-multi-select, rg
             setDetail({ status: 'idle' })
           }
           await loadList()
-          setNotice('已删除角色 ' + item.name)
+          setNotice(t('已删除角色 ', 'Deleted role ') + item.name)
           return true
         } catch (cause) {
           setError(String(cause?.message ?? cause))
@@ -1431,7 +1445,7 @@ button.loom-role-summary:hover { background: var(--dsw-alias-bg-multi-select, rg
           return list
         } catch (cause) {
           setApps([])
-          setError('读取已安装应用失败：' + String(cause?.message ?? cause))
+          setError(t('读取已安装应用失败：', 'Could not list installed apps: ') + String(cause?.message ?? cause))
           return []
         } finally {
           setAppsLoading(false)
@@ -1457,9 +1471,9 @@ button.loom-role-summary:hover { background: var(--dsw-alias-bg-multi-select, rg
             throw new Error('HTTP ' + response.status + ' ' + String(body.code ?? body.message ?? text.slice(0, 120)))
           }
 
-          setNotice('已用 ' + appId + ' 打开 ' + dir)
+          setNotice(t('已用 ' + appId + ' 打开 ' + dir, 'Opened ' + dir + ' in ' + appId))
         } catch (cause) {
-          setError('打开失败：' + String(cause?.message ?? cause))
+          setError(t('打开失败：', 'Could not open: ') + String(cause?.message ?? cause))
         }
       }
 
@@ -1489,7 +1503,7 @@ button.loom-role-summary:hover { background: var(--dsw-alias-bg-multi-select, rg
         if (!review?.ticket || review.ticket === reviewedTicket.current || list.status !== 'ready' || pending || draftSaving) return
         reviewedTicket.current = review.ticket
         if (roleDirty || familyDraftDirty(familyDraft) || extraction) {
-          setNotice('已打开技能编排侧栏，当前草稿仍可继续编辑')
+          setNotice(t('已打开技能编排侧栏，当前草稿仍可继续编辑', 'Skill Loom opened. Your draft is still available.'))
           return
         }
         setFamilyDraft(undefined)
@@ -1519,7 +1533,7 @@ button.loom-role-summary:hover { background: var(--dsw-alias-bg-multi-select, rg
       }
       const writeRoleGraph = async (graph, preview) => {
         if (workspace && workspace.baseSignature !== graphSignature(savedRole)) {
-          throw new Error('已保存的角色编排在别处被修改，当前草稿已保留')
+          throw new Error(t('已保存的角色编排在别处被修改，当前草稿已保留', 'The saved graph changed elsewhere. Your draft was kept.'))
         }
         const response = await fetch(API + '/roles/' + encodeURIComponent(savedRole.id) + '/graph', {
           method: 'POST', headers: { 'content-type': 'application/json' },
@@ -1530,7 +1544,7 @@ button.loom-role-summary:hover { background: var(--dsw-alias-bg-multi-select, rg
         })
         const body = await response.json().catch(() => ({}))
         if (!response.ok) throw new Error(body.error === 'conflict'
-          ? '角色刚被别处修改，当前草稿已保留' : body.message ?? body.error ?? 'HTTP ' + response.status)
+          ? t('角色刚被别处修改，当前草稿已保留', 'This role changed elsewhere. Your draft was kept.') : body.message ?? body.error ?? 'HTTP ' + response.status)
         return body.result.result
       }
       const editRoleGraph = async (graph, afterPreview) => {
@@ -1571,7 +1585,7 @@ button.loom-role-summary:hover { background: var(--dsw-alias-bg-multi-select, rg
           else {
             setRoleWorkspace({ ...workspace, current, baseSignature: graphSignature(current.role) })
             setDetail({ status: 'ready', role: current.role, plan: current.plan })
-            setNotice('角色编排已保存')
+            setNotice(t('角色编排已保存', 'Role graph saved'))
           }
           await loadList()
         } catch (cause) {
@@ -1616,7 +1630,7 @@ button.loom-role-summary:hover { background: var(--dsw-alias-bg-multi-select, rg
       const insertFamily = (family, target) => {
         if (pending || !graphRole) return
         if (target !== undefined && familyBlockedTargets(graphRole, family).has(target)) {
-          setError('接到此技能会形成循环依赖')
+          setError(t('接到此技能会形成循环依赖', 'Connecting to this skill would create a cycle'))
           return
         }
         const members = new Set(graphRole.members)
@@ -1632,11 +1646,11 @@ button.loom-role-summary:hover { background: var(--dsw-alias-bg-multi-select, rg
           const addedMembers = new Set(saved.members.filter(name => !members.has(name)))
           const addedEdges = new Set(saved.edges.map(edgeKey).filter(key => !edges.has(key)))
           if (addedMembers.size === 0 && addedEdges.size === 0) {
-            setNotice('「' + family.name + '」已包含，无需添加')
+            setNotice(t('「' + familyName(family) + '」已包含，无需添加', '“' + familyName(family) + '” is already included'))
             return
           }
           setInsertedFamily({ role: saved, members: addedMembers, edges: addedEdges })
-          setNotice('「' + family.name + '」新增 ' + addedMembers.size + ' 项技能、' + addedEdges.size + ' 条依赖')
+          setNotice(t('「' + familyName(family) + '」新增 ' + addedMembers.size + ' 项技能、' + addedEdges.size + ' 条依赖', 'Added ' + addedMembers.size + ' skills and ' + addedEdges.size + ' dependencies from “' + familyName(family) + '”'))
         })
       }
 
@@ -1666,7 +1680,7 @@ button.loom-role-summary:hover { background: var(--dsw-alias-bg-multi-select, rg
       const canSaveFamily = familyForm && !draftSaving && !!familyForm.name.trim()
         && (familyDraft?.members.length ?? extractionMembers.size) > 0
         && (!familyDraft || familyDraftDirty(familyDraft))
-      const showFamilySaved = familyDraft && !familyDraftDirty(familyDraft) && notice === '已保存能力族'
+      const showFamilySaved = familyDraft && !familyDraftDirty(familyDraft) && notice === FAMILY_SAVED
 
       const shownPlan = draftPlan ?? plan
       const members = new Set(shownPlan?.members)
@@ -1719,14 +1733,14 @@ button.loom-role-summary:hover { background: var(--dsw-alias-bg-multi-select, rg
             borderLeft: '1px solid var(--dsw-alias-border-l2, rgba(127,127,127,.28))',
             zIndex: 1,
           }
-      const feedbackText = error ?? (notice === '已保存能力族' ? undefined : notice)
+      const feedbackText = error ?? (notice === FAMILY_SAVED ? undefined : notice)
       const hover = libraryHover.hover
       const skillDetailGraph = familyDraft ? draftGraph : roleCanvas && libraryTab === 'skills' ? role : undefined
       const hoveredSkill = skillDetailGraph && hover?.kind === 'skill'
         ? filtered.find(skill => skill.name === hover.id) : undefined
       const familyKeywords = familyQuery.toLowerCase().trim().split(/\s+/).filter(Boolean)
       const visibleFamilies = families.filter(family => {
-        const text = [family.name, family.description, ...family.members].join('\n').toLowerCase()
+        const text = [familyName(family), familyDescription(family), family.name, ...family.members].join('\n').toLowerCase()
         return familyKeywords.every(word => text.includes(word))
       })
       const hoveredFamily = !familyDraft && !extraction && libraryTab === 'families' && hover?.kind === 'family'
@@ -1761,10 +1775,10 @@ button.loom-role-summary:hover { background: var(--dsw-alias-bg-multi-select, rg
             style: { '--loom-hover-anchor': hover.top + 'px' },
             onPointerEnter: libraryHover.keep, onPointerLeave: libraryHover.leave,
             onPointerDown: event => event.stopPropagation(),
-          }, hoveredFamily ? h(LibraryDetail, { kind: '能力族', name: hoveredFamily.name },
-            h('div', { style: styles.muted }, hoveredFamily.description || '暂无简介')) : h(SkillDetail, {
+          }, hoveredFamily ? h(LibraryDetail, { kind: 'family', name: familyName(hoveredFamily) },
+            h('div', { style: styles.muted }, familyDescription(hoveredFamily) || t('暂无简介', 'No description'))) : h(SkillDetail, {
             key: hoveredSkill.name, graph: skillDetailGraph, plan: shownPlan,
-            kind: familyDraft ? '能力族' : '角色', skills: list.skills, skillName: hoveredSkill.name,
+            kind: familyDraft ? 'family' : 'role', skills: list.skills, skillName: hoveredSkill.name,
             apps, appsLoading, loadApps, launchInApp, folderOf,
           })),
           h('div', {
@@ -1792,15 +1806,15 @@ button.loom-role-summary:hover { background: var(--dsw-alias-bg-multi-select, rg
                   edges: familyDraft.edges.filter(item => item.from !== edge.from || item.to !== edge.to),
                 }),
                 onRemovalDrag: setRemovalActive, onRemoveDrop: dropToRemove,
-                onDropMissed: () => setNotice('请将技能拖到节点或移除区'),
+                onDropMissed: () => setNotice(t('请将技能拖到节点或移除区', 'Drop the skill on a node or the removal zone')),
                 onGrab: beginPan,
                 }),
                 !familyDraft.members.length && h('div', { key: 'empty', className: 'loom-family-editor-hint' },
-                  '把技能拖到能力族节点开始编排'),
+                  t('把技能拖到能力族节点开始编排', 'Drop a skill on the family root to start')),
               ])
               : previewFamily
               ? h(Graph, {
-                key: previewFamily.id, role: previewFamily, plan: previewFamily.preview,
+                key: previewFamily.id, role: { ...previewFamily, name: familyName(previewFamily) }, plan: previewFamily.preview,
                 preview: true, onGrab: beginPan,
               })
               : roleReady
@@ -1822,32 +1836,32 @@ button.loom-role-summary:hover { background: var(--dsw-alias-bg-multi-select, rg
                   }),
                   onRemovalDrag: setRemovalActive,
                   onRemoveDrop: dropToRemove,
-                  onDropMissed: from => setNotice('松手时不在任何节点上，未建立依赖：' + from),
+                  onDropMissed: from => setNotice(t('松手时不在任何节点上，未建立依赖：', 'No dependency added. Drop on a node: ') + from),
                   onGrab: beginPan,
                 })
               : h('div', { key: 'empty', style: { ...styles.empty, padding: 24 } },
                 detail.status === 'error' ? detail.error
-                  : detail.status === 'loading' ? '加载中…'
+                  : detail.status === 'loading' ? t('加载中…', 'Loading…')
                     : list.status === 'ready' && list.roles.length === 0
-                      ? '还没有角色。让 agent 用 role_graph 建一个，刷新即可看到。'
-                      : '选择一个角色查看依赖图'),
+                      ? t('还没有角色。让 agent 用 role_graph 建一个，刷新即可看到。', 'No roles yet. Create one here or ask the agent to use role_graph.')
+                      : t('选择一个角色查看依赖图', 'Select a role to view its dependency graph')),
           ]),
           dragCard?.family && h('div', {
             key: 'family-drag-hint',
             role: 'status',
             style: { position: 'absolute', bottom: 12, left: 12, padding: '5px 9px', borderRadius: 6,
               pointerEvents: 'none', background: 'var(--dsw-alias-bg-layer-2, #fff)', fontSize: 12 },
-          }, '拖到高亮节点以插入能力族'),
+          }, t('拖到高亮节点以插入能力族', 'Drop on a highlighted node to insert the family')),
           h('div', {
             key: 'feedback', className: 'loom-operation-result', role: 'status',
             'data-error': error !== undefined,
           }, feedbackText && h('span', null, feedbackText)),
           roleCanvas && !dragCard && !removalActive && h('div', {
             key: 'catalog-size',
-            title: '统计可用技能的名称和描述，不含技能正文或人设，也不是 token 数。',
+            title: t('统计可用技能的名称和描述，不含技能正文或人设，也不是 token 数。', 'Character count for available skill names and descriptions. Skill bodies and persona are excluded.'),
             style: { ...styles.muted, position: 'absolute', bottom: 12, left: 12,
               padding: '3px 6px', borderRadius: 4, background: 'var(--dsw-alias-bg-layer-1, #fff)' },
-          }, '技能名称与描述约占 ' + plan.catalogChars.toLocaleString() + ' 字符'),
+          }, t('技能名称与描述约占 ' + plan.catalogChars.toLocaleString() + ' 字符', 'Skill names and descriptions: about ' + plan.catalogChars.toLocaleString() + ' characters')),
           familyForm && h('div', {
             key: 'family-heading',
             style: { ...styles.cornerBar, ...styles.cornerStack, maxWidth: 'calc(100% - 190px)' },
@@ -1856,18 +1870,18 @@ button.loom-role-summary:hover { background: var(--dsw-alias-bg-multi-select, rg
               h('button', {
                 key: 'back', type: 'button', className: 'loom-option', disabled: draftSaving,
                 onClick: extraction ? () => setExtraction(undefined) : closeFamilyDraft,
-                'aria-label': extraction ? '取消另存能力族' : discardDraft ? '确认放弃能力族草稿' : '返回能力族库',
-              }, extraction ? '取消' : discardDraft ? '放弃草稿' : '← 返回'),
+                'aria-label': extraction ? t('取消另存能力族', 'Cancel saving as an ability family') : discardDraft ? t('确认放弃能力族草稿', 'Confirm discarding the family draft') : t('返回能力族库', 'Back to the family library'),
+              }, extraction ? t('取消', 'Cancel') : discardDraft ? t('放弃草稿', 'Discard draft') : t('← 返回', '← Back')),
               familyDraft && h(FamilyPicker, {
                 key: familyDraft.id ?? 'new', draft: familyDraft, families, pending: draftSaving,
                 choose: startFamilyDraft, rename: renameFamily,
-                remove: item => setDeleteTarget({ kind: '能力族', item, dirty: familyDraft.id === item.id && familyDraftDirty(familyDraft) }),
+                remove: item => setDeleteTarget({ kind: 'family', item, dirty: familyDraft.id === item.id && familyDraftDirty(familyDraft) }),
                 canSave: canSaveFamily, saveAndChoose: saveFamilyDraft, error,
               }),
-              familyDraftDirty(familyDraft) && h('span', { key: 'dirty', style: { ...styles.muted, whiteSpace: 'nowrap' } }, '未保存'),
+              familyDraftDirty(familyDraft) && h('span', { key: 'dirty', style: { ...styles.muted, whiteSpace: 'nowrap' } }, t('未保存', 'Unsaved')),
               (!familyDraft || familyDraft.id === undefined) && h('input', {
                 key: 'name', className: 'loom-role-trigger', value: familyForm.name, maxLength: 64,
-                placeholder: '能力族名称', 'aria-label': '能力族名称',
+                placeholder: t('能力族名称', 'Ability family name'), 'aria-label': t('能力族名称', 'Ability family name'),
                 style: { ...styles.select, maxWidth: 'none', height: 28 }, disabled: draftSaving,
                 onChange: event => {
                   const name = event.target.value
@@ -1877,7 +1891,7 @@ button.loom-role-summary:hover { background: var(--dsw-alias-bg-multi-select, rg
               }),
             ]),
             familyDraft && h(InlineDescription, {
-              key: 'summary', kind: '能力族', value: familyDraft.description, pending: draftSaving,
+              key: 'summary', kind: 'family', value: familyDraft.description, pending: draftSaving,
               save: description => {
                 updateDraft({ description })
                 return true
@@ -1890,12 +1904,12 @@ button.loom-role-summary:hover { background: var(--dsw-alias-bg-multi-select, rg
               step: stepFamilyHistory, save: extraction ? saveExtraction : () => saveFamilyDraft(),
               canSave: canSaveFamily, saving: draftSaving, showHistory: !!familyDraft,
             }),
-            showFamilySaved && h('span', { key: 'saved', role: 'status', style: styles.muted }, '已保存'),
+            showFamilySaved && h('span', { key: 'saved', role: 'status', style: styles.muted }, t('已保存', 'Saved')),
           ]),
           // Anchored to the drawing area, not the whole stage: in the narrow layout
           // the stage also holds the skill panel, and a stage-wide zone landed in
           // the middle of the sidebar instead of at the bottom of the graph.
-          removalActive ? h('div', { ref: zoneRef, style: styles.trashZone }, '拖到此处移除') : null,
+          removalActive ? h('div', { ref: zoneRef, style: styles.trashZone }, t('拖到此处移除', 'Drop here to remove')) : null,
           roleReady && h(RoleDetails, {
             key: role.id, role, pending, send,
             open: roleCanvas && roleDetailsOpen,
@@ -1913,13 +1927,13 @@ button.loom-role-summary:hover { background: var(--dsw-alias-bg-multi-select, rg
                 step: stepRoleDraft, save: () => saveRoleGraph(), canSave: roleDirty && !pending, saving: roleGraphSaving,
               }),
               h('div', { key: 'role-options', style: { display: 'flex', alignItems: 'center', gap: 8, marginTop: 6 } }, [
-                roleDirty && h('span', { key: 'dirty', style: styles.muted }, '未保存'),
+                roleDirty && h('span', { key: 'dirty', style: styles.muted }, t('未保存', 'Unsaved')),
                 h('button', {
                   key: 'persona-edit', type: 'button', ref: roleDetailsButton,
                   style: { ...styles.button(true), marginLeft: 0, height: 24, padding: '0 8px' },
                   'aria-expanded': roleDetailsOpen, 'aria-controls': 'loom-role-details-' + role.id,
                   onClick: () => setRoleDetailsOpen(open => !open),
-                }, '编辑人设'),
+                }, t('编辑人设', 'Edit persona')),
               ]),
             ])
             : null,
@@ -1930,7 +1944,7 @@ button.loom-role-summary:hover { background: var(--dsw-alias-bg-multi-select, rg
           pending: pending || draftSaving, error,
           onCancel: () => setDeleteTarget(undefined),
           onConfirm: async () => {
-            const remove = deleteTarget.kind === '角色' ? deleteRoleById : deleteFamily
+            const remove = deleteTarget.kind === 'role' ? deleteRoleById : deleteFamily
             if (await remove(deleteTarget.item)) setDeleteTarget(undefined)
           },
         }),
@@ -1951,8 +1965,8 @@ button.loom-role-summary:hover { background: var(--dsw-alias-bg-multi-select, rg
         !familyForm && h('div', { style: { ...styles.cornerBar, ...styles.cornerStack } }, [
             previewFamily
               ? h('div', { key: 'preview', style: { display: 'flex', alignItems: 'center', gap: 8 } }, [
-                h('button', { key: 'back', type: 'button', className: 'loom-option', onClick: () => setPreviewId(undefined) }, '← 返回角色'),
-                h('span', { key: 'title', style: { fontSize: 13, fontWeight: 600 } }, previewFamily.name),
+                h('button', { key: 'back', type: 'button', className: 'loom-option', onClick: () => setPreviewId(undefined) }, t('← 返回角色', '← Back to role')),
+                h('span', { key: 'title', style: { fontSize: 13, fontWeight: 600 } }, familyName(previewFamily)),
               ])
               : h('div', {
                 key: 'roles', ref: roleMenuRef, style: { position: 'relative' },
@@ -1977,7 +1991,7 @@ button.loom-role-summary:hover { background: var(--dsw-alias-bg-multi-select, rg
                   className: 'loom-option-icon',
                   'aria-hidden': true,
                 }, h('path', { d: 'M8 2a3 3 0 1 1 0 6 3 3 0 0 1 0-6Zm-6 12c0-2.5 2.7-4 6-4s6 1.5 6 4v.5H2V14Z', fill: 'currentColor' })),
-                h('span', { key: 'label', className: 'loom-option-label' }, roleReady ? role.name : (list.roles.length === 0 ? '还没有角色' : '选择角色')),
+                h('span', { key: 'label', className: 'loom-option-label' }, roleReady ? role.name : (list.roles.length === 0 ? t('还没有角色', 'No roles yet') : t('选择角色', 'Choose a role'))),
                 h('svg', {
                   key: 'chevron',
                   viewBox: '0 0 16 16',
@@ -1990,21 +2004,21 @@ button.loom-role-summary:hover { background: var(--dsw-alias-bg-multi-select, rg
               roleMenu
                 ? h('div', { key: 'menu', id: 'loom-role-picker', className: 'loom-menu loom-menu--float loom-role-picker' }, [
                   ...list.roles.map(item => h(PickerRow, {
-                    key: item.id, item, kind: '角色', current: item.id === selectedRole, pending,
-                    title: item.name + '（' + item.runtime.length + ' 可用 / ' + item.red.length + ' 缺失）',
+                    key: item.id, item, kind: 'role', current: item.id === selectedRole, pending,
+                    title: t(item.name + '（' + item.runtime.length + ' 可用 / ' + item.red.length + ' 缺失）', item.name + ' (' + item.runtime.length + ' available / ' + item.red.length + ' missing)'),
                     renameDraft, setRenameDraft,
                     choose: () => {
                       requestRoleSwitch(item)
                       setRoleMenu(false)
                     },
-                    rename: (_, name) => send('fields', { action: 'set_name', name }, '角色已重命名', item),
-                    remove: target => setDeleteTarget({ kind: '角色', item: target, dirty: target.id === selectedRole && roleDirty }),
+                    rename: (_, name) => send('fields', { action: 'set_name', name }, t('角色已重命名', 'Role renamed'), item),
+                    remove: target => setDeleteTarget({ kind: 'role', item: target, dirty: target.id === selectedRole && roleDirty }),
                   })),
                   h('div', { key: 'footer', className: 'loom-role-picker-footer' }, creatingRole === undefined
                     ? h('button', {
                       key: 'new', type: 'button', className: 'loom-option',
                       onClick: () => setCreatingRole(''),
-                    }, '＋ 新建角色')
+                    }, t('＋ 新建角色', '＋ New role'))
                     : h('form', { key: 'newform', onSubmit: event => {
                       event.preventDefault()
                       if (!pending && creatingRole.trim()) void createRole(creatingRole)
@@ -2013,7 +2027,7 @@ button.loom-role-summary:hover { background: var(--dsw-alias-bg-multi-select, rg
                         key: 'i',
                         autoFocus: true,
                         value: creatingRole,
-                        placeholder: '角色名称', 'aria-label': '角色名称',
+                        placeholder: t('角色名称', 'Role name'), 'aria-label': t('角色名称', 'Role name'),
                         onChange: event => setCreatingRole(event.target.value),
                         style: styles.select,
                       }),
@@ -2021,23 +2035,23 @@ button.loom-role-summary:hover { background: var(--dsw-alias-bg-multi-select, rg
                         key: 'ok', type: 'submit',
                         style: styles.button(!pending && creatingRole.trim() !== ''),
                         disabled: pending || creatingRole.trim() === '',
-                      }, '创建'),
+                      }, t('创建', 'Create')),
                     ])),
                 ])
                 : null,
             ]),
             roleCanvas && h(InlineDescription, {
               key: role.id, value: role.description ?? '', pending,
-              save: description => send('fields', { action: 'set_description', description }, '简介已保存'),
+              save: description => send('fields', { action: 'set_description', description }, t('简介已保存', 'Description saved')),
             }),
         ]),
 
         list.status === 'ready'
           ? h('div', { style: panelStyle }, [
             h('div', { key: 'head', style: styles.panelHead }, [
-              extraction ? h('h2', { key: 'extraction-title', style: styles.h2 }, '另存能力族')
-                : familyDraft ? h('h2', { key: 'library-title', style: styles.h2 }, '技能库')
-                : h('div', { key: 'tabs', className: 'loom-library-tabs' }, [['skills', '技能'], ['families', '能力族']].map(([tab, label]) => h('button', {
+              extraction ? h('h2', { key: 'extraction-title', style: styles.h2 }, t('另存能力族', 'Save as ability family'))
+                : familyDraft ? h('h2', { key: 'library-title', style: styles.h2 }, t('技能库', 'Skill library'))
+                : h('div', { key: 'tabs', className: 'loom-library-tabs' }, [['skills', t('技能', 'Skills')], ['families', t('能力族', 'Ability families')]].map(([tab, label]) => h('button', {
                 key: tab, type: 'button', 'aria-pressed': libraryTab === tab,
                 className: 'loom-library-tab', onClick: () => {
                   if (tab !== libraryTab) {
@@ -2049,7 +2063,7 @@ button.loom-role-summary:hover { background: var(--dsw-alias-bg-multi-select, rg
               }, label))),
               libraryTab === 'families' && !familyForm && h(LibrarySearch, {
                 key: 'family-search', query: familyQuery, setQuery: setFamilyQuery,
-                label: '搜索能力族名称、简介或成员技能',
+                label: t('搜索能力族名称、简介或成员技能', 'Search families by name, description, or skill'),
               }),
               (libraryTab === 'skills' || familyDraft) && h(SkillLibraryFilters, {
                 key: 'filter', query: skillQuery, setQuery: setSkillQuery,
@@ -2071,15 +2085,15 @@ button.loom-role-summary:hover { background: var(--dsw-alias-bg-multi-select, rg
                 ? h(FamilyLibrary, {
                   key: role?.id ?? 'library', role: savedRole, roleDirty, families: visibleFamilies, familyError, pending, startFamilyDraft,
                   filtering: familyKeywords.length > 0,
-                  remove: item => setDeleteTarget({ kind: '能力族', item }),
+                  remove: item => setDeleteTarget({ kind: 'family', item }),
                   previewId, openPreview, loadFamilies, bindLibraryDrag, startExtraction, bindLibraryHover: libraryHover.bind,
                 })
                 : h('div', { key: 'list', style: styles.skillScroll, tabIndex: 0,
-                  role: 'region', 'aria-label': '技能列表' }, filtered.length === 0
+                  role: 'region', 'aria-label': t('技能列表', 'Skill list') }, filtered.length === 0
                   ? h('div', { className: 'loom-skill-empty', role: 'status' },
-                    keywords.length ? '没有符合搜索和筛选条件的技能'
-                      : shownPlan && skillMembership === 'included' ? '当前画布还没有纳入技能'
-                        : shownPlan && skillMembership === 'excluded' ? '没有未纳入的技能' : '没有可用技能')
+                    keywords.length ? t('没有符合搜索和筛选条件的技能', 'No skills match the search and filters')
+                      : shownPlan && skillMembership === 'included' ? t('当前画布还没有纳入技能', 'No skills included on this canvas')
+                        : shownPlan && skillMembership === 'excluded' ? t('没有未纳入的技能', 'No excluded skills') : t('没有可用技能', 'No available skills'))
                   : filtered.map(skill => {
                 const member = members.has(skill.name)
                 const stateColor = (shownPlan?.red ?? []).includes(skill.name) ? COLORS.red
@@ -2108,7 +2122,7 @@ button.loom-role-summary:hover { background: var(--dsw-alias-bg-multi-select, rg
                   h('span', { key: 'n', className: 'loom-card-name' }, skill.name),
                   shownPlan && h('span', {
                     key: 'm', className: 'loom-card-info loom-skill-state', 'data-member': member,
-                  }, member ? '已纳入' : '未纳入'),
+                  }, member ? t('已纳入', 'Included') : t('未纳入', 'Excluded')),
                 ])
               })),
             ]),
@@ -2124,15 +2138,15 @@ button.loom-role-summary:hover { background: var(--dsw-alias-bg-multi-select, rg
           key: 'query', type: 'search', value: query, placeholder: label,
           'aria-label': label, onChange: event => setQuery(event.target.value),
         }),
-        query && h('button', { key: 'clear', type: 'button', 'aria-label': '清空搜索', onClick: () => setQuery('') }, '×'),
+        query && h('button', { key: 'clear', type: 'button', 'aria-label': t('清空搜索', 'Clear search'), onClick: () => setQuery('') }, '×'),
       ])
     }
 
     function SkillLibraryFilters({ query, setQuery, membership, setMembership, showMembership, total, included }) {
       return h(React.Fragment, null,
-        h(LibrarySearch, { query, setQuery, label: '搜索技能名称或描述' }),
-        showMembership && h('div', { className: 'loom-skill-filters', role: 'group', 'aria-label': '按纳入状态筛选' },
-          [['all', '全部', total], ['included', '已纳入', included], ['excluded', '未纳入', total - included]]
+        h(LibrarySearch, { query, setQuery, label: t('搜索技能名称或描述', 'Search skill names or descriptions') }),
+        showMembership && h('div', { className: 'loom-skill-filters', role: 'group', 'aria-label': t('按纳入状态筛选', 'Filter by membership') },
+          [['all', t('全部', 'All'), total], ['included', t('已纳入', 'Included'), included], ['excluded', t('未纳入', 'Excluded'), total - included]]
             .map(([id, label, count]) => h('button', {
               key: id, type: 'button', className: 'loom-skill-filter', 'aria-pressed': membership === id,
               onClick: () => setMembership(id),
@@ -2143,13 +2157,13 @@ button.loom-role-summary:hover { background: var(--dsw-alias-bg-multi-select, rg
     function FamilyExtractionSummary({ extraction, members }) {
       return h('div', { className: 'loom-family-detail', style: styles.panelBody }, [
         h('p', { key: 'help', style: { ...styles.muted, margin: '0 0 10px' } },
-          '点击画布上的技能进行选择。它依赖的技能会自动纳入，虚线框表示自动纳入的依赖。'),
+          t('点击画布上的技能进行选择。它依赖的技能会自动纳入，虚线框表示自动纳入的依赖。', 'Select skills on the canvas. Prerequisites are included automatically and shown with dashed borders.')),
         h('div', { key: 'count', style: styles.sectionTitle, 'aria-live': 'polite' },
-          '将保存 ' + members.size + ' 项技能'),
+          t('将保存 ', 'Will save ') + members.size + t(' 项技能', ' skills')),
         h('ul', { key: 'items', className: 'loom-family-entries-list' }, [...members].sort(compareName).map(name =>
           h('li', { key: name, className: 'loom-family-entry' }, [
             name,
-            !extraction.roots.includes(name) && h('span', { key: 'dependency', className: 'loom-card-info' }, ' · 依赖'),
+            !extraction.roots.includes(name) && h('span', { key: 'dependency', className: 'loom-card-info' }, t(' · 依赖', ' · prerequisite')),
           ]))),
       ])
     }
@@ -2158,19 +2172,19 @@ button.loom-role-summary:hover { background: var(--dsw-alias-bg-multi-select, rg
       const actionStyle = { ...styles.button(!pending), marginLeft: 0 }
       return h('div', {
         className: 'loom-family-library', style: { ...styles.skillScroll, padding: '0 12px 8px' },
-        tabIndex: 0, role: 'region', 'aria-label': '能力族列表',
+        tabIndex: 0, role: 'region', 'aria-label': t('能力族列表', 'Ability families'),
       }, [
         h('div', { key: 'toolbar', className: 'loom-family-toolbar' }, [
           h('button', { key: 'new', type: 'button', className: 'loom-family-new', disabled: pending,
-            onClick: () => startFamilyDraft() }, '＋ 新建能力族'),
+            onClick: () => startFamilyDraft() }, t('＋ 新建能力族', '＋ New ability family')),
           h('button', { key: 'from-role', type: 'button', className: 'loom-option',
             disabled: pending || roleDirty || !role?.members?.length, onClick: () => startExtraction(role) },
-          roleDirty ? '保存角色后可另存' : '从当前角色另存'),
+          roleDirty ? t('保存角色后可另存', 'Save the role first') : t('从当前角色另存', 'Save from current role')),
         ]),
         familyError && h('div', { key: 'error', style: styles.error, role: 'alert' }, familyError),
-        familyError && h('button', { key: 'retry', type: 'button', className: 'loom-option', onClick: loadFamilies }, '重试加载'),
+        familyError && h('button', { key: 'retry', type: 'button', className: 'loom-option', onClick: loadFamilies }, t('重试加载', 'Retry')),
         !familyError && filtering && families.length === 0
-          && h('div', { key: 'empty', className: 'loom-skill-empty', role: 'status' }, '没有符合搜索条件的能力族'),
+          && h('div', { key: 'empty', className: 'loom-skill-empty', role: 'status' }, t('没有符合搜索条件的能力族', 'No ability families match the search')),
         ...families.map(family => h('div', {
           key: family.id,
           className: 'loom-card',
@@ -2180,7 +2194,7 @@ button.loom-role-summary:hover { background: var(--dsw-alias-bg-multi-select, rg
           h('button', {
             key: 'handle', type: 'button', className: 'loom-family-handle',
             'aria-pressed': previewId === family.id,
-            ...bindLibraryDrag({ name: family.name, color: COLORS.role, family }, () => openPreview(family.id), !role || pending),
+            ...bindLibraryDrag({ name: familyName(family), color: COLORS.role, family }, () => openPreview(family.id), !role || pending),
           }, [
             h('span', { key: 'icon', className: 'loom-family-icon', 'aria-hidden': true },
               h('svg', { width: 16, height: 16, viewBox: '0 0 16 16', fill: 'none', stroke: 'currentColor', strokeWidth: 1.2 },
@@ -2189,16 +2203,16 @@ button.loom-role-summary:hover { background: var(--dsw-alias-bg-multi-select, rg
                 h('rect', { x: 2, y: 11, width: 4, height: 3, rx: 1 }),
                 h('rect', { x: 10, y: 11, width: 4, height: 3, rx: 1 }))),
             h('span', { key: 'text', style: { minWidth: 0 } }, [
-              h('span', { key: 'name', className: 'loom-card-name', style: { display: 'block', fontWeight: 600 } }, family.name),
+              h('span', { key: 'name', className: 'loom-card-name', style: { display: 'block', fontWeight: 600 } }, familyName(family)),
               h('span', { key: 'meta', className: 'loom-card-info' },
-                (family.builtin ? '预置 · ' : '') + family.members.length + ' 项技能'),
+                (family.builtin ? t('预置 · ', 'Built-in · ') : '') + family.members.length + t(' 项技能', ' skills')),
             ]),
           ]),
           !family.builtin && h('div', { key: 'actions', className: 'loom-family-actions' }, [
             h('button', { key: 'edit', type: 'button', style: actionStyle, disabled: pending,
-              onClick: () => startFamilyDraft(family) }, '编辑'),
+              onClick: () => startFamilyDraft(family) }, t('编辑', 'Edit')),
             h('button', { key: 'delete', type: 'button', style: actionStyle, disabled: pending,
-              'aria-label': '删除能力族 ' + family.name, onClick: () => remove(family) }, '删除'),
+              'aria-label': t('删除能力族 ', 'Delete ability family ') + family.name, onClick: () => remove(family) }, t('删除', 'Delete')),
           ]),
         ])),
       ])
@@ -2240,13 +2254,13 @@ button.loom-role-summary:hover { background: var(--dsw-alias-bg-multi-select, rg
           disabled: pending, 'aria-expanded': open, 'aria-controls': 'loom-family-picker',
           onClick: () => open ? close() : setOpen(true),
         }, [
-          h('span', { key: 'name', className: 'loom-option-label' }, draft.id ? draft.name : '切换能力族'),
+          h('span', { key: 'name', className: 'loom-option-label' }, draft.id ? draft.name : t('切换能力族', 'Switch ability family')),
           h('svg', { key: 'chevron', width: 12, height: 12, viewBox: '0 0 16 16', 'aria-hidden': true },
             h('path', { d: 'M4 6l4 4 4-4', fill: 'none', stroke: 'currentColor', strokeWidth: 1.5 })),
         ]),
         open && h('div', { key: 'menu', id: 'loom-family-picker', className: 'loom-menu loom-menu--float loom-role-picker' }, [
           ...families.filter(item => !item.builtin).map(item => h(PickerRow, {
-            key: item.id, item, kind: '能力族', current: item.id === draft.id, pending,
+            key: item.id, item, kind: 'family', current: item.id === draft.id, pending,
             renameDraft, setRenameDraft, rename, remove,
             choose: target => {
               if (pending) return
@@ -2257,7 +2271,7 @@ button.loom-role-summary:hover { background: var(--dsw-alias-bg-multi-select, rg
               } else select(target)
             },
           })),
-          families.every(item => item.builtin) && h('div', { key: 'empty', style: styles.muted }, '暂无可编辑的能力族'),
+          families.every(item => item.builtin) && h('div', { key: 'empty', style: styles.muted }, t('暂无可编辑的能力族', 'No editable ability families')),
         ]),
         switchTarget && h(DraftSwitchDialog, {
           key: switchTarget.id, target: switchTarget, pending, canSave, error,
@@ -2288,19 +2302,19 @@ button.loom-role-summary:hover { background: var(--dsw-alias-bg-multi-select, rg
           if (!pending) onCancel()
         },
       }, [
-        h('h2', { key: 'title', id: 'loom-delete-title', style: styles.h2 }, '删除' + target.kind + '？'),
+        h('h2', { key: 'title', id: 'loom-delete-title', style: styles.h2 }, t('删除' + kindName(target.kind) + '？', 'Delete ' + kindName(target.kind) + '?')),
         h('p', { key: 'description', id: 'loom-delete-description', style: styles.muted },
-          '确定删除' + target.kind + '「' + target.item.name + '」吗？'
-          + (target.dirty ? ' 未保存的草稿也会丢失。' : '')),
+          t('确定删除' + kindName(target.kind) + '「' + target.item.name + '」吗？', 'Delete “' + target.item.name + '”?')
+          + (target.dirty ? t(' 未保存的草稿也会丢失。', ' Your unsaved draft will also be lost.') : '')),
         attempted && error && h('p', { key: 'error', role: 'alert', style: styles.error }, error),
         h('div', { key: 'actions', className: 'loom-confirm-actions' }, [
           h('button', { key: 'cancel', type: 'button', className: 'loom-option', autoFocus: true,
-            disabled: pending, onClick: onCancel }, '取消'),
+            disabled: pending, onClick: onCancel }, t('取消', 'Cancel')),
           h('button', { key: 'confirm', type: 'button', className: 'loom-option loom-role-trigger',
             style: { color: COLORS.red }, disabled: pending, onClick: () => {
               setAttempted(true)
               void onConfirm()
-            } }, pending ? '删除中…' : '确认删除'),
+            } }, pending ? t('删除中…', 'Deleting…') : t('确认删除', 'Confirm deletion')),
         ]),
       ])
     }
@@ -2330,19 +2344,19 @@ button.loom-role-summary:hover { background: var(--dsw-alias-bg-multi-select, rg
           cancel()
         },
       }, [
-        h('h2', { key: 'title', id: 'loom-family-switch-title', style: styles.h2 }, '当前草稿还未保存'),
-        h('p', { key: 'description', id: 'loom-family-switch-description', style: styles.muted }, '切换到「' + target.name + '」前，如何处理当前草稿？'),
+        h('h2', { key: 'title', id: 'loom-family-switch-title', style: styles.h2 }, t('当前草稿还未保存', 'Unsaved draft')),
+        h('p', { key: 'description', id: 'loom-family-switch-description', style: styles.muted }, t('切换到「' + target.name + '」前，如何处理当前草稿？', 'What should happen to the draft before switching to “' + target.name + '”?')),
         attempted && error && h('p', { key: 'error', role: 'alert', style: styles.error }, error),
         h('div', { key: 'actions', className: 'loom-confirm-actions' }, [
           h('button', { key: 'stay', ref: cancelRef, type: 'button', className: 'loom-option', disabled: pending,
-            onClick: cancel }, '继续编辑'),
+            onClick: cancel }, t('继续编辑', 'Continue editing')),
           h('button', { key: 'discard', type: 'button', className: 'loom-option', disabled: pending,
-            onClick: onDiscard }, '放弃并切换'),
+            onClick: onDiscard }, t('放弃并切换', 'Discard and switch')),
           h('button', { key: 'save', type: 'button', className: 'loom-option loom-role-trigger', disabled: !canSave,
             onClick: () => {
               setAttempted(true)
               void onSave()
-            } }, pending ? '保存中…' : '保存并切换'),
+            } }, pending ? t('保存中…', 'Saving…') : t('保存并切换', 'Save and switch')),
         ]),
       ])
     }
@@ -2353,7 +2367,7 @@ button.loom-role-summary:hover { background: var(--dsw-alias-bg-multi-select, rg
           renameDraft?.id === item.id ? h('input', {
             key: 'rename-input', className: 'loom-role-picker-rename',
             autoFocus: true, maxLength: 64, value: renameDraft.name, readOnly: pending,
-            'aria-label': '新' + kind + '名称',
+            'aria-label': t('新' + kindName(kind) + '名称', 'New ' + kindName(kind) + ' name'),
             style: { ...styles.select, height: 28, maxWidth: 'none' },
             onFocus: event => event.currentTarget.select(),
             onChange: event => setRenameDraft({ ...renameDraft, name: event.target.value }),
@@ -2381,7 +2395,7 @@ button.loom-role-summary:hover { background: var(--dsw-alias-bg-multi-select, rg
           ]),
           h('button', {
             key: 'rename', type: 'button', className: 'loom-option loom-role-picker-icon',
-            'aria-label': '重命名' + kind + ' ' + item.name,
+            'aria-label': t('重命名' + kindName(kind) + ' ' + item.name, 'Rename ' + kindName(kind) + ' ' + item.name),
             disabled: pending || renameDraft?.id === item.id,
             onClick: () => {
               setRenameDraft({ id: item.id, name: item.name })
@@ -2392,7 +2406,7 @@ button.loom-role-summary:hover { background: var(--dsw-alias-bg-multi-select, rg
           }, h('path', { d: 'm3 10-.5 3.5L6 13l7-7-3-3-7 7Zm5.5-5.5 3 3' }))),
           h('button', {
             key: 'x', type: 'button', className: 'loom-option loom-role-picker-icon',
-            'aria-label': '删除' + kind + ' ' + item.name,
+            'aria-label': t('删除' + kindName(kind) + ' ' + item.name, 'Delete ' + kindName(kind) + ' ' + item.name),
             disabled: pending,
             onClick: () => {
               setRenameDraft(undefined)
@@ -2406,17 +2420,17 @@ button.loom-role-summary:hover { background: var(--dsw-alias-bg-multi-select, rg
       ])
     }
 
-    function InlineDescription({ kind = '角色', value, pending, save }) {
+    function InlineDescription({ kind = 'role', value, pending, save }) {
       const [draft, setDraft] = useState(undefined)
       if (draft === undefined) return h('button', {
         type: 'button', className: 'loom-role-summary', 'data-empty': !value,
         title: value || undefined, disabled: pending, onClick: () => setDraft(value),
-      }, value || '点击添加' + kind + '简介')
+      }, value || t('点击添加' + kindName(kind) + '简介', 'Add a ' + kindName(kind) + ' description'))
       return h('input', {
         type: 'text', className: 'loom-role-summary', style: { ...styles.select, width: 'min(285px, 35vw)', maxWidth: 'none' },
         autoFocus: true, value: draft, maxLength: 160, readOnly: pending,
-        'aria-label': kind + '简介',
-        placeholder: '用一句话描述' + kind + '用途',
+        'aria-label': t(kindName(kind) + '简介', kindName(kind) + ' description'),
+        placeholder: t('用一句话描述' + kindName(kind) + '用途', 'Describe the purpose in one sentence'),
         onChange: event => setDraft(event.target.value),
         onBlur: () => setDraft(undefined),
         onKeyDown: async event => {
@@ -2443,26 +2457,26 @@ button.loom-role-summary:hover { background: var(--dsw-alias-bg-multi-select, rg
         if (open) closeButton.current?.focus()
       }, [open])
       return h('section', {
-        className: 'loom-role-drawer', id: 'loom-role-details-' + role.id, hidden: !open, 'aria-label': '编辑人设',
+        className: 'loom-role-drawer', id: 'loom-role-details-' + role.id, hidden: !open, 'aria-label': t('编辑人设', 'Edit persona'),
         onKeyDown: event => { if (event.key === 'Escape') onClose() },
       }, [
           h('div', { key: 'head', className: 'loom-detail-header' }, [
             h('h2', { key: 'h', style: styles.h2 }, role.name),
             h('button', {
               key: 'close', type: 'button', ref: closeButton, className: 'loom-option',
-              'aria-label': '关闭角色详情', onClick: onClose,
+              'aria-label': t('关闭角色详情', 'Close role details'), onClick: onClose,
             }, '×'),
           ]),
           h('label', { key: 'p', htmlFor: 'loom-persona-' + role.id,
-            style: { ...styles.sectionTitle, display: 'block', marginTop: 14 } }, '人设'),
-          h('p', { key: 'note', style: { ...styles.muted, margin: '0 0 6px' } }, '保存后会注入绑定此角色的会话系统提示。'),
+            style: { ...styles.sectionTitle, display: 'block', marginTop: 14 } }, t('人设', 'Persona')),
+          h('p', { key: 'note', style: { ...styles.muted, margin: '0 0 6px' } }, t('保存后会注入绑定此角色的会话系统提示。', 'Saving adds this persona to the system prompt of sessions bound to this role.')),
           h('textarea', {
             key: 'pt',
             id: 'loom-persona-' + role.id,
             value: personaDraft,
             onChange: event => setPersonaDraft(event.target.value),
             rows: 4,
-            placeholder: '这段文字会作为该角色会话的系统提示首段。',
+            placeholder: t('这段文字会作为该角色会话的系统提示首段。', 'Enter the opening section of this role\'s session system prompt.'),
             style: {
               width: '100%', boxSizing: 'border-box', resize: 'vertical',
               font: 'inherit', fontSize: 12, padding: 8, borderRadius: 6,
@@ -2476,8 +2490,8 @@ button.loom-role-summary:hover { background: var(--dsw-alias-bg-multi-select, rg
               type: 'button',
               style: { ...styles.button(canSave), marginLeft: 0 },
               disabled: !canSave,
-              onClick: () => void send('fields', { action: 'set_persona', persona: personaDraft }, '人设已保存'),
-            }, '保存人设'),
+              onClick: () => void send('fields', { action: 'set_persona', persona: personaDraft }, t('人设已保存', 'Persona saved')),
+            }, t('保存人设', 'Save persona')),
           ]),
 
       ])
@@ -2485,7 +2499,7 @@ button.loom-role-summary:hover { background: var(--dsw-alias-bg-multi-select, rg
 
     function LibraryDetail({ kind, name, children }) {
       return h('section', {
-        className: 'loom-family-detail loom-library-detail', 'aria-label': kind + '详情',
+        className: 'loom-family-detail loom-library-detail', 'aria-label': t(kindName(kind) + '详情', kindName(kind) + ' details'),
       }, [
         h('div', { key: 'head', className: 'loom-detail-header' },
           h('h2', { style: styles.h2 }, name)),
@@ -2513,8 +2527,8 @@ button.loom-role-summary:hover { background: var(--dsw-alias-bg-multi-select, rg
       const incoming = (graph.edges ?? []).filter(edge => edge.to === skillName).sort((a, b) => compareName(a.from, b.from))
 
       const stateLabel = (plan.red ?? []).includes(skillName)
-        ? '缺失（红）'
-        : (plan.gray ?? []).some(row => row.name === skillName) ? '受阻（灰）' : member ? '可用' : '未纳入'
+        ? t('缺失（红）', 'Missing (red)')
+        : (plan.gray ?? []).some(row => row.name === skillName) ? t('受阻（灰）', 'Blocked (gray)') : member ? t('可用', 'Available') : t('未纳入', 'Excluded')
 
       const children = [
         h('div', { key: 'state', style: styles.muted }, `${stateLabel}${info?.source ? ` · ${info.source}` : ''}`),
@@ -2541,13 +2555,13 @@ button.loom-role-summary:hover { background: var(--dsw-alias-bg-multi-select, rg
               await loadApps()
               setPickerOpen(value => !value)
             },
-          }, '在应用中打开 ' + (pickerOpen ? '▴' : '▾')),
+          }, t('在应用中打开 ', 'Open in app ') + (pickerOpen ? '▴' : '▾')),
           pickerOpen && h('div', {
             key: 'applist', className: 'loom-menu loom-menu--float',
             style: { left: 0, right: 'auto', marginTop: 0 },
           },
             (apps ?? []).length === 0
-              ? h('div', { key: 'e', className: 'loom-menu-empty' }, '没有可用的应用')
+              ? h('div', { key: 'e', className: 'loom-menu-empty' }, t('没有可用的应用', 'No apps available'))
               : (apps ?? []).map(app => h('button', {
                   key: appKey(app),
                   type: 'button', className: 'loom-menu-item loom-app-menu-item',
@@ -2563,7 +2577,7 @@ button.loom-role-summary:hover { background: var(--dsw-alias-bg-multi-select, rg
       }
       children.push(h('div', { key: 'member', style: styles.section },
         h('div', { style: styles.empty },
-          member ? '已纳入该' + kind + '。' : '尚未纳入。拖到' + kind + '节点即可纳入。')))
+          member ? t('已纳入该' + kindName(kind) + '。', 'Included in this ' + kindName(kind) + '.') : t('尚未纳入。拖到' + kindName(kind) + '节点即可纳入。', 'Drag onto the ' + kindName(kind) + ' node to include it.'))))
 
       const outgoingRows = outgoing.map((edge, index) => h('div', { key: `o${index}`, style: styles.line }, [
         h('span', { key: 'to', style: styles.mono }, edge.to),
@@ -2571,8 +2585,8 @@ button.loom-role-summary:hover { background: var(--dsw-alias-bg-multi-select, rg
       ]))
 
       children.push(h('div', { key: 'out', style: styles.section }, [
-        h('div', { key: 'title', style: styles.sectionTitle }, `它依赖 · ${outgoing.length}`),
-        outgoing.length === 0 ? h('div', { key: 'none', style: styles.empty }, '没有依赖。') : null,
+        h('div', { key: 'title', style: styles.sectionTitle }, t('它依赖', 'Requires') + ' · ' + outgoing.length),
+        outgoing.length === 0 ? h('div', { key: 'none', style: styles.empty }, t('没有依赖。', 'No prerequisites.')) : null,
         ...outgoingRows,
       ]))
 
@@ -2582,12 +2596,12 @@ button.loom-role-summary:hover { background: var(--dsw-alias-bg-multi-select, rg
       ]))
 
       children.push(h('div', { key: 'in', style: styles.section }, [
-        h('div', { key: 'title', style: styles.sectionTitle }, `被依赖 · ${incoming.length}`),
-        incoming.length === 0 ? h('div', { key: 'none', style: styles.empty }, '没有其他技能依赖它。') : null,
+        h('div', { key: 'title', style: styles.sectionTitle }, t('被依赖', 'Required by') + ' · ' + incoming.length),
+        incoming.length === 0 ? h('div', { key: 'none', style: styles.empty }, t('没有其他技能依赖它。', 'No other skills require it.')) : null,
         ...incomingRows,
       ]))
 
-      return h(LibraryDetail, { kind: '技能', name: skillName }, children)
+      return h(LibraryDetail, { kind: 'skill', name: skillName }, children)
     }
     // Captured once at apply time: the sidebar service is the only way to hand a
     // file to DSH's own viewer, which is where editing a SKILL.md happens.
@@ -2600,11 +2614,12 @@ button.loom-role-summary:hover { background: var(--dsw-alias-bg-multi-select, rg
 
     function appLabel(app) {
       const id = appKey(app)
-      return app?.name ?? app?.title ?? app?.label ?? (Object.hasOwn(APP_LABELS, id) ? APP_LABELS[id] : id)
+      const label = Object.hasOwn(APP_LABELS, id) ? APP_LABELS[id] : id
+      return app?.name ?? app?.title ?? app?.label ?? (typeof label === 'function' ? label() : label)
     }
 
     const APP_LABELS = {
-      finder: '访达', explorer: '文件资源管理器', filemanager: '文件管理器',
+      finder: () => t('访达', 'Finder'), explorer: () => t('文件资源管理器', 'File Explorer'), filemanager: () => t('文件管理器', 'File Manager'),
       cursor: 'Cursor', vscode: 'VS Code', vscodeinsiders: 'VS Code Insiders',
       windsurf: 'Windsurf', zed: 'Zed', sublimetext: 'Sublime Text', xcode: 'Xcode',
       androidstudio: 'Android Studio', intellij: 'IntelliJ IDEA', pycharm: 'PyCharm',
@@ -2648,6 +2663,7 @@ button.loom-role-summary:hover { background: var(--dsw-alias-bg-multi-select, rg
     }
 
     function RoleOption({ sessionId, header, unavailable, running }) {
+      useSyncExternalStore(subscribeLocale, localeSnapshot, localeSnapshot)
       const [roles, setRoles] = useState([])
       const [bound, setBound] = useState(undefined)
       const [open, setOpen] = useState(false)
@@ -2691,7 +2707,7 @@ button.loom-role-summary:hover { background: var(--dsw-alias-bg-multi-select, rg
         } catch {
           if (!controller.signal.aborted) {
             setReadError(true)
-            setFailed('无法读取此会话的角色，请重试。')
+            setFailed(t('无法读取此会话的角色，请重试。', 'Could not read the role for this session. Try again.'))
           }
         }
       }, [sessionId])
@@ -2775,14 +2791,14 @@ button.loom-role-summary:hover { background: var(--dsw-alias-bg-multi-select, rg
             body: JSON.stringify(roleId === undefined ? { sessionId } : { sessionId, roleId }),
           })
           if (!response.ok) throw new Error(response.status === 409
-            ? '会话正在运行，完成后再切换角色。'
-            : response.status === 404 ? '此角色已不存在，请重新打开选择器。' : '无法切换角色，请重试。')
+            ? t('会话正在运行，完成后再切换角色。', 'Wait for the session to finish before switching roles.')
+            : response.status === 404 ? t('此角色已不存在，请重新打开选择器。', 'This role no longer exists. Reopen the role picker.') : t('无法切换角色，请重试。', 'Could not switch roles. Try again.'))
           setBound(roleId)
-          if (header) setAnnouncement('角色已切换，从下一轮生效，历史消息不变。')
+          if (header) setAnnouncement(t('角色已切换，从下一轮生效，历史消息不变。', 'Role changed. It takes effect on the next turn and leaves previous messages intact.'))
           close(false)
           requestAnimationFrame(() => trigger.current?.focus())
         } catch (cause) {
-          setFailed(cause instanceof Error ? cause.message : '无法切换角色，请重试。')
+          setFailed(cause instanceof Error ? cause.message : t('无法切换角色，请重试。', 'Could not switch roles. Try again.'))
         } finally {
           pending.current = false
           setWriting(false)
@@ -2790,8 +2806,8 @@ button.loom-role-summary:hover { background: var(--dsw-alias-bg-multi-select, rg
       }
 
       const current = roles.find(role => role.id === bound)
-      const label = current?.name ?? (bound ? '角色不可用' : known ? '默认角色' : '角色')
-      const title = running ? label + '（会话运行中，暂不可切换）' : failed ?? label
+      const label = current?.name ?? (bound ? t('角色不可用', 'Role unavailable') : known ? t('默认角色', 'Default role') : t('角色', 'Role'))
+      const title = running ? label + t('（会话运行中，暂不可切换）', ' (switching unavailable while the session is running)') : failed ?? label
       const option = (roleId, name, description) => h('button', {
         key: roleId ?? 'default', type: 'button', className: 'loom-menu-item',
         title: name, disabled: blocked, 'aria-pressed': roleId === bound,
@@ -2808,7 +2824,7 @@ button.loom-role-summary:hover { background: var(--dsw-alias-bg-multi-select, rg
         h('style', { key: 'css' }, MENU_CSS),
         h('button', {
           key: 'trigger', ref: trigger, type: 'button', className: 'loom-option',
-          disabled: blocked, title, 'aria-label': '会话角色：' + title,
+          disabled: blocked, title, 'aria-label': t('会话角色：', 'Session role: ') + title,
           'aria-expanded': open, 'aria-controls': open ? menuId : undefined,
           onClick: () => {
             if (open) { close(false); return }
@@ -2834,7 +2850,7 @@ button.loom-role-summary:hover { background: var(--dsw-alias-bg-multi-select, rg
         header && h('span', { key: 'status', role: 'status', className: 'loom-session-role-status' }, announcement),
         open && position ? createPortal(h('div', {
           id: menuId, ref: panel, className: 'loom-menu loom-session-role-menu', style: position,
-          role: 'group', 'aria-label': '选择会话角色',
+          role: 'group', 'aria-label': t('选择会话角色', 'Choose a session role'),
           onBlur: event => {
             if (event.relatedTarget && !panel.current?.contains(event.relatedTarget)
               && event.relatedTarget !== trigger.current) close(false)
@@ -2847,11 +2863,11 @@ button.loom-role-summary:hover { background: var(--dsw-alias-bg-multi-select, rg
           },
         }, [
           failed && h('div', { key: 'error', className: 'loom-session-role-error', role: 'alert' }, failed),
-          readError ? h('button', { key: 'retry', type: 'button', className: 'loom-menu-item', onClick: () => void refresh() }, '重试')
-            : !loaded ? h('div', { key: 'loading', className: 'loom-menu-empty', role: 'status' }, '加载中…')
-              : option(undefined, '默认角色', '不收窄技能，注入全部已加载技能'),
+          readError ? h('button', { key: 'retry', type: 'button', className: 'loom-menu-item', onClick: () => void refresh() }, t('重试', 'Retry'))
+            : !loaded ? h('div', { key: 'loading', className: 'loom-menu-empty', role: 'status' }, t('加载中…', 'Loading…'))
+              : option(undefined, t('默认角色', 'Default role'), t('不收窄技能，注入全部已加载技能', 'Make all loaded skills available')),
           ...(loaded ? roles.map(role => option(role.id, role.name, role.description?.trim())) : []),
-          header && loaded && h('div', { key: 'hint', className: 'loom-session-role-hint' }, '角色从下一轮生效，历史消息不变。'),
+          header && loaded && h('div', { key: 'hint', className: 'loom-session-role-hint' }, t('角色从下一轮生效，历史消息不变。', 'Role changes take effect on the next turn and leave previous messages intact.')),
         ]), document.body, 'menu') : null,
       ])
     }
@@ -2865,13 +2881,14 @@ button.loom-role-summary:hover { background: var(--dsw-alias-bg-multi-select, rg
     const TAB_KIND = 'skillLoom'
 
     return {
-      inject: ['slots'],
+      inject: ['slots', 'locale'],
       apply(ctx) {
+        localeService = ctx.locale ?? ctx.get?.('locale')
         ctx.slots.inject('sidebar.panellist', () => ctx.slots.register({
           name: 'sidebar.panellist',
           id: 'skill-loom',
           order: 5,
-          label: () => '技能编排',
+          label: () => t('技能编排', 'Skill Loom'),
         }, SidebarIcon))
         ctx.slots.inject('main', () => ctx.slots.register({
           name: 'main',
@@ -2927,15 +2944,15 @@ button.loom-role-summary:hover { background: var(--dsw-alias-bg-multi-select, rg
           id: TAB_ID,
           kind: TAB_KIND,
           priority: 'builtin',
-          title: () => '技能编排',
+          title: () => t('技能编排', 'Skill Loom'),
           // Entries on the sidebar's default page, beside "workspace files" and
           // "new terminal": the user opens the tab from there instead of waiting
           // for anything to open it for them.
           guide: [{
             id: 'skill-loom',
             order: 40,
-            title: () => '技能编排',
-            description: () => '按角色编排技能依赖图',
+            title: () => t('技能编排', 'Skill Loom'),
+            description: () => t('按角色编排技能依赖图', 'Compose skill dependency graphs by role'),
           }],
         }), 'skill-loom: right tab type'))
 

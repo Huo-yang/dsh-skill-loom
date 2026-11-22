@@ -1,10 +1,10 @@
 ---
 name: skill-loom-review
-description: 检查角色或能力族的编排结果，并打开当前 DSH 会话的技能编排侧栏。
+description: Verify a saved DSH role or ability family and open its graph in the current conversation sidebar.
 ---
 
-用 role_graph(show) 或 role_family(show) 核对刚保存的技能和依赖，指出缺失或被阻断的技能。
+Use role_graph or role_family with action "show" to verify the saved skills and dependencies. Report any missing or blocked skills.
 
-在最终回复前调用 role_review。检查角色传 role，检查能力族传 family，二选一。
+Before replying, call role_review with exactly one target. Pass "role" to show a role or "family" to show an ability family.
 
-用简短文字说明改动和仍需用户确认的选择。已有角色、会话绑定与用户数据只按用户要求修改。
+Summarize the result and any decisions the user still needs to make. Modify existing roles, session bindings, or user data only as requested.

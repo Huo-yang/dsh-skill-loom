@@ -1,21 +1,37 @@
-# Skill Loom for DeepSeek Harness
+<h1 align="center">Skill Loom</h1>
 
-[English](README.en.md) · [更新记录](CHANGELOG.md) · [架构](docs/ARCHITECTURE.md)
+<p align="center"><a href="https://www.npmjs.com/package/@huo-yang/dsh-skill-loom"><img src="https://img.shields.io/npm/v/@huo-yang/dsh-skill-loom" alt="npm 版本"></a> <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue" alt="MIT 许可证"></a> <img src="https://img.shields.io/badge/Node.js-22%2B-brightgreen" alt="Node.js 22 或更新版本"></p>
+
+<p align="center"><strong>简体中文</strong> · <a href="README.en.md">English</a></p>
 
 Skill Loom 把技能组织成可视化角色和可复用的能力族。把角色绑定到 DSH 会话后，可用技能目录只包含该角色中依赖完整的技能。Agent 因此能用更短的上下文了解当前能力，人也能在画布上看清技能之间的前置条件。
 
+## 功能
+
+- **角色编排**。拖拽增删技能和依赖，支持搜索、悬停详情、撤销和重做。草稿可在刷新后恢复，保存后才应用。
+- **能力族**。把经常一起使用的技能和依赖保存成可复用的子图。
+- **会话绑定**。新建会话时选择角色，应用角色人设和该会话的可用技能目录。
+- **依赖检查**。缺失技能标红，直接或间接依赖它的技能标灰。
+- **Agent 自助编排**。用预置「技能编排助手」创建和调整角色、能力族，并在会话右侧打开结果。
+
+## 兼容性
+
+| 项目 | 要求或验证范围 |
+| --- | --- |
+| Node.js | 22 或更新版本 |
+| DSH 界面 | Web profile |
+| 已验证宿主 | Windows 上的 DSH Web 0.2.2-rc.5 |
+
 ## 安装
 
-需要 Node.js 22 或更新版本。已在 Windows 上验证 DSH Web 0.2.2-rc.5。
-
 ```powershell
-dsh plugin --profile web add @huo-yang/dsh-skill-loom@0.1.1
+dsh plugin --profile web add @huo-yang/dsh-skill-loom
 dsh web
 ```
 
-也可以把包名替换为下载的 .tgz 文件路径。若 DSH Web 已在运行，重启后从左侧导航栏打开「技能编排」。会话右侧栏也提供同名页签。
+若 DSH Web 已在运行，重启后从左侧导航栏打开「技能编排」。会话右侧栏也提供同名页签。也可从 [GitHub Releases](https://github.com/Huo-yang/dsh-skill-loom/releases) 下载 `.tgz`，在安装命令里用文件路径替换包名。
 
-## 使用
+## 快速上手
 
 1. **编排角色**。新建角色，将技能从右侧库拖到角色根节点。将技能拖到另一个技能节点可建立依赖。移除技能时，把画布节点拖到下方移除区。
 2. **复用能力族**。能力族保存可一起使用的技能和依赖。将能力族拖到角色根节点或某个技能节点，即可纳入缺少的技能和连线。已有技能会复用。
@@ -28,7 +44,7 @@ dsh web
 
 > 建一个用于审阅项目文档的角色。先确认需要哪些技能和依赖，保存后在当前会话右侧打开技能编排供我检查。
 
-DSH 使用 role_graph 编排角色，使用 role_family 创建、修改和复用能力族，使用 role_review 打开当前 Web 会话的检查侧栏。侧栏已有未保存草稿时，草稿会保留。
+DSH 使用 `role_graph` 编排角色，使用 `role_family` 创建、修改和复用能力族，使用 `role_review` 打开当前 Web 会话的检查侧栏。侧栏已有未保存草稿时，草稿会保留。
 
 ## DSH 如何管理技能
 
@@ -46,7 +62,7 @@ Skill Loom 建在 DSH 的技能系统之上，不替换它的技能加载器。�
 
 绑定角色后，健康技能进入该会话的可用技能目录，可按需加载正文。缺失、被阻断和未纳入的技能从目录排除，也无法经该会话的技能工具按名加载。Agent 若拥有文件读取权限，仍可用文件工具读取原文件。文件、命令和网络权限由 DSH 控制。
 
-角色、能力族和会话绑定保存在 DSH 数据目录的 roles 下。未保存的编排草稿留在当前浏览器。
+角色、能力族和会话绑定保存在 DSH 数据目录的 `roles` 下。未保存的编排草稿留在当前浏览器。
 
 ## 开发
 
@@ -55,4 +71,16 @@ npm run check
 npm pack --dry-run
 ```
 
-详见 [贡献指南](CONTRIBUTING.md)。本项目采用 [MIT 许可证](LICENSE)。
+[贡献指南](CONTRIBUTING.md) · [架构](docs/ARCHITECTURE.md) · [更新记录](CHANGELOG.md)
+
+## 卸载
+
+```powershell
+dsh plugin --profile web remove @huo-yang/dsh-skill-loom
+```
+
+重启 DSH Web 后生效。卸载插件会保留数据目录中的角色、能力族和绑定记录。
+
+## 许可证
+
+本项目采用 [MIT 许可证](LICENSE)。

@@ -1,14 +1,14 @@
 ---
 name: skill-loom-orchestrate
-description: 按用户目标整理技能，创建或更新 DSH 角色与能力族。
+description: Organize skills around a user's goal by creating or updating DSH roles and ability families.
 ---
 
-用 role_graph(action="list") 读取角色与技能目录。只选目录中能完成任务的技能。
+Call role_graph with action "list" to inspect existing roles and the skill catalog. Select only skills that serve the user's goal.
 
-用 role_graph 的 create、add_members、link 编排角色。只有确实需要另一个技能时才建依赖；from 是使用者，to 是它依赖的技能，why 写明具体理由。
+Use role_graph actions "create", "add_members", and "link" to compose a role. Add an edge when a skill actually requires another skill. Set "from" to the consumer and "to" to its prerequisite. Explain the dependency in "why".
 
-更新已有角色前先 show。用 role_graph 的 plan 或 show 检查 runtime、red 和 gray。不要用缺失技能凑齐能力。
+Before changing an existing role, inspect it with "show". Use "plan" or "show" to check the runtime, red, and gray lists. Leave unavailable skills out of the new graph.
 
-用 role_family(action="list") 查找能力族。用 create 建独立能力族，用 show 取得 revision 后再 update，用 apply 将能力族合入角色。
+Use role_family with action "list" to inspect reusable families. Use "create" to save a new family and pass an empty "edges" array if it has no dependencies. For changes, use "show" to obtain the revision before calling "update". Use "apply" to insert a family into a role.
 
-完成配置后，加载 skill-loom-review，在当前 DSH 会话打开技能编排侧栏供用户检查。
+After saving and checking the configuration, load skill-loom-review to open the graph in the current DSH conversation sidebar.

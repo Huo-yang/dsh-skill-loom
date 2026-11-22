@@ -1,5 +1,17 @@
 # 更新记录 / Changelog
 
+## 0.1.2
+
+- 技能编排界面和预置能力族跟随 DSH 的中英文设置。
+- 内置编排与审阅技能以英文 `SKILL.md` 随插件打包。
+- 重整中英文 README，补齐安装、快速上手、卸载和许可证章节。
+
+### English
+
+- The Skill Loom UI and preset family follow the DSH language setting for Chinese and English.
+- The built-in orchestration and review skills ship as English `SKILL.md` files.
+- Both READMEs now cover installation, quick start, uninstallation, and licensing in dedicated sections.
+
 ## 0.1.1
 
 - 已开始的会话可在标题栏查看当前角色、切换角色或恢复默认。新建会话仍从输入框旁选择。

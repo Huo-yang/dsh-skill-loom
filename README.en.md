@@ -1,21 +1,37 @@
-# Skill Loom for DeepSeek Harness
+<h1 align="center">Skill Loom</h1>
 
-[简体中文](README.md) · [Changelog](CHANGELOG.md) · [Architecture](docs/ARCHITECTURE.md)
+<p align="center"><a href="https://www.npmjs.com/package/@huo-yang/dsh-skill-loom"><img src="https://img.shields.io/npm/v/@huo-yang/dsh-skill-loom" alt="npm version"></a> <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue" alt="MIT license"></a> <img src="https://img.shields.io/badge/Node.js-22%2B-brightgreen" alt="Node.js 22 or later"></p>
+
+<p align="center"><a href="README.md">简体中文</a> · <strong>English</strong></p>
 
 Skill Loom organizes skills into visual roles and reusable ability families. A DSH session bound to a role sees only the skills in that role whose dependencies are healthy. This keeps the skill context smaller and makes prerequisites visible to both the agent and the person editing the graph.
 
+## Features
+
+- **Role editing.** Drag to add or remove skills and dependencies. Search the library, hover to inspect skills, and undo or redo changes. Drafts survive a refresh and take effect when saved.
+- **Ability families.** Save frequently used skills and their dependencies as reusable subgraphs.
+- **Session binding.** Choose a role when starting a conversation to apply its persona and available skill catalog.
+- **Dependency health.** Missing skills appear red. Skills that depend on them directly or indirectly appear gray.
+- **Agent-assisted editing.** The built-in Skill Loom Assistant can create or update roles and ability families and open the result beside the conversation.
+
+## Compatibility
+
+| Item | Requirement or verified scope |
+| --- | --- |
+| Node.js | 22 or later |
+| DSH interface | Web profile |
+| Verified host | DSH Web 0.2.2-rc.5 on Windows |
+
 ## Install
 
-Node.js 22 or later is required. Verified with DSH Web 0.2.2-rc.5 on Windows.
-
 ```powershell
-dsh plugin --profile web add @huo-yang/dsh-skill-loom@0.1.1
+dsh plugin --profile web add @huo-yang/dsh-skill-loom
 dsh web
 ```
 
-You can also install a downloaded .tgz by passing its path in place of the package name. Restart an already-running DSH Web process, then open Skill Loom from the left navigation or from a conversation’s right sidebar.
+Restart DSH Web if it is already running, then open Skill Loom from the left navigation or a conversation’s right sidebar. You can also download a `.tgz` from [GitHub Releases](https://github.com/Huo-yang/dsh-skill-loom/releases) and pass its path in place of the package name.
 
-## Use
+## Quick start
 
 1. **Build a role.** Create a role and drag skills from the library onto its root. Drop a skill onto another skill to connect them. Drag an existing node to the canvas removal zone to remove it.
 2. **Reuse an ability family.** An ability family stores related skills and their dependencies. Drop one onto the role root or another skill to add missing nodes and edges. Existing skills are shared.
@@ -28,7 +44,7 @@ Create a role, drop the built-in orchestration family onto its root and save. St
 
 > Create a role for reviewing project documentation. Check its skill prerequisites, save the result, and open Skill Loom in this conversation’s right sidebar so I can review it.
 
-DSH uses role_graph for roles, role_family to create, update and reuse families, and role_review to open the saved graph in the current Web conversation. An open editor preserves your unsaved draft.
+DSH uses `role_graph` for roles, `role_family` to create, update and reuse families, and `role_review` to open the saved graph in the current Web conversation. An open editor preserves your unsaved draft.
 
 ## How DSH manages skills
 
@@ -46,7 +62,7 @@ For the version verified by this project, see the [DSH 0.2.2-rc.5 skill subsyste
 
 Binding controls the skill catalog and named skill loading for that conversation. Healthy skills can be loaded on demand. Missing, blocked and excluded skills are omitted and cannot be loaded by the skill tool. If the agent has permission to read a skill file, it can still read that file with a file tool. DSH controls file, command and network permissions.
 
-Roles, families and bindings live under roles in the DSH data directory. Unsaved graph drafts stay in the current browser.
+Roles, families and bindings live under `roles` in the DSH data directory. Unsaved graph drafts stay in the current browser.
 
 ## Development
 
@@ -55,4 +71,16 @@ npm run check
 npm pack --dry-run
 ```
 
-See the [contribution guide](CONTRIBUTING.md). Released under the [MIT license](LICENSE).
+[Contribution guide](CONTRIBUTING.md) · [Architecture](docs/ARCHITECTURE.md) · [Changelog](CHANGELOG.md)
+
+## Uninstall
+
+```powershell
+dsh plugin --profile web remove @huo-yang/dsh-skill-loom
+```
+
+Restart DSH Web to apply the change. Uninstalling preserves roles, ability families, and binding records in the data directory.
+
+## License
+
+Released under the [MIT license](LICENSE).
