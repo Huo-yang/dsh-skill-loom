@@ -9,7 +9,7 @@ Skill Loom organizes skills into visual roles and reusable ability families. A D
 Node.js 22 or later is required. Verified with DSH Web 0.2.2-rc.5 on Windows.
 
 ```powershell
-dsh plugin --profile web add @huo-yang/dsh-skill-loom@0.1.0
+dsh plugin --profile web add @huo-yang/dsh-skill-loom@0.1.1
 dsh web
 ```
 
@@ -19,7 +19,7 @@ You can also install a downloaded .tgz by passing its path in place of the packa
 
 1. **Build a role.** Create a role and drag skills from the library onto its root. Drop a skill onto another skill to connect them. Drag an existing node to the canvas removal zone to remove it.
 2. **Reuse an ability family.** An ability family stores related skills and their dependencies. Drop one onto the role root or another skill to add missing nodes and edges. Existing skills are shared.
-3. **Save and bind.** Graph changes stay in a draft with undo and redo until you save. Choose a role next to the composer when starting a DSH conversation. The role description appears in the UI. The persona you set in the upper-right canvas controls is injected into bound sessions.
+3. **Save and bind.** Graph changes stay in a draft with undo and redo until you save. Choose a role next to the composer when starting a DSH conversation. Once it starts, use the session header to see the active role, switch it, or restore the default. Switching is unavailable while the session is running. The role description appears in the UI. The persona you set in the upper-right canvas controls is injected into bound sessions.
 4. **Inspect health.** Red indicates a missing skill. Gray indicates a skill directly or indirectly blocked by a missing dependency. Hover over a skill to inspect its description, dependencies and membership.
 
 ### Let DSH edit the graph
@@ -29,6 +29,18 @@ Create a role, drop the built-in orchestration family onto its root and save. St
 > Create a role for reviewing project documentation. Check its skill prerequisites, save the result, and open Skill Loom in this conversation’s right sidebar so I can review it.
 
 DSH uses role_graph for roles, role_family to create, update and reuse families, and role_review to open the saved graph in the current Web conversation. An open editor preserves your unsaved draft.
+
+## How DSH manages skills
+
+Skill Loom builds on DSH's skill system rather than replacing its loader. DSH **discovers skills, resolves names by scope, shows a session catalog, and loads full instructions on demand**.
+
+1. **Discovery.** The filesystem provider locates the project from the session's working directory and recognizes `<skill-name>/SKILL.md` and `<skill-name>.md`. Within a scope, the default filesystem precedence is project `.dsh/skills`, project `.agents/skills`, custom directories, the user's DSH skills directory, the user's Agents skills directory, then a bundled directory if configured. Plugins can also register non-filesystem providers.
+2. **Resolution.** The `ctx.skills` registry combines host-wide skills with those on the current agent's scope chain. For a duplicate name, the nearest scope wins. Provider ranking only breaks ties within a scope, so a skill shown in the editor may not resolve in every session.
+3. **Invocation.** When DSH's `skill` tool is available, the model sees the names and short descriptions of skills it can invoke, then uses the tool to load full instructions by name. A separate invocation setting controls whether the user can run a skill with `/skill-name`.
+
+**What Loom changes.** When you bind a role, Loom checks its dependencies against the skills the target agent can resolve. Members with complete dependencies keep their original definitions. Loom shadows other discovered skills by name in that agent's scope, with both model and user invocation disabled. Unbinding removes the overrides. Loom does not rewrite skill files or change DSH's file, command, or network permissions.
+
+For the version verified by this project, see the [DSH 0.2.2-rc.5 skill subsystem reference](https://github.com/deepseek-ai/deepseek-harness/blob/dsh-v0.2.2-rc.5/docs/subsystems/skills.md#provider-registry).
 
 ## Scope
 

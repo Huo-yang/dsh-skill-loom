@@ -1,5 +1,17 @@
 # 更新记录 / Changelog
 
+## 0.1.1
+
+- 已开始的会话可在标题栏查看当前角色、切换角色或恢复默认。新建会话仍从输入框旁选择。
+- 会话运行中禁止切换角色；读取或切换失败时会显示提示。
+- 中英文 README 新增 DSH 技能发现、作用域、调用方式，以及 Loom 的会话级技能筛选说明。
+
+### English
+
+- View or switch a role, or restore the default, from an active conversation's header. The composer still offers a role picker for new sessions.
+- Role changes are unavailable while the session is running. The picker shows errors if reading or changing the role fails.
+- Both READMEs explain DSH skill discovery, scope and invocation, and how Loom filters skills per session.
+
 ## 0.1.0
 
 - 角色与能力族依赖图，支持拖拽编排、搜索、悬停详情和确认删除。

@@ -2,8 +2,9 @@ window.__ModuleLoader__.load({
   id: '@huo-yang/dsh-skill-loom',
   factory(require) {
     const React = require('react')
+    const { createPortal } = require('react-dom')
     const h = React.createElement
-    const { useState, useEffect, useLayoutEffect, useCallback, useMemo, useRef } = React
+    const { useState, useEffect, useLayoutEffect, useCallback, useMemo, useRef, useId } = React
 
     const API = '/skill-loom'
     const NODE_W = 150
@@ -114,6 +115,23 @@ window.__ModuleLoader__.load({
   background: var(--dsw-alias-bg-layer-2, #ffffff);
   border: .5px solid var(--dsw-alias-border-l3, rgba(127,127,127,.28));
   box-shadow: 0 10px 28px rgba(0,0,0,.18); }
+.loom-session-role { display: inline-flex; min-width: 0; }
+.loom-session-role > button { max-width: min(148px, 28vw); }
+@media (max-width: 560px) {
+  .loom-session-role[data-loom-role-placement="header"] .loom-option-label { display: none; }
+}
+.loom-session-role > button:disabled { cursor: not-allowed; opacity: .6; }
+.loom-session-role-menu { position: fixed; z-index: 1000; margin: 0; box-sizing: border-box; min-width: 0;
+  color: var(--dsw-alias-label-primary, inherit); font: inherit; }
+.loom-session-role-menu > button { width: 100%; justify-content: space-between; border: 0; background: transparent;
+  text-align: left; font: inherit; font-size: 13px; }
+.loom-session-role-menu > button:hover { background: var(--dsw-alias-bg-multi-select, rgba(127,127,127,.16)); }
+.loom-session-role-menu > button:disabled { opacity: .6; cursor: not-allowed; }
+.loom-session-role-menu > button:focus-visible { outline: 1px solid currentColor; outline-offset: -2px; }
+.loom-session-role-error { padding: 5px 8px; font-size: 12px; overflow-wrap: anywhere; }
+.loom-session-role-hint { margin-top: 4px; padding: 6px 8px 3px; border-top: 1px solid var(--dsw-alias-border-l3, rgba(127,127,127,.28));
+  font-size: 11px; color: var(--dsw-alias-label-secondary, #5e6572); }
+.loom-session-role-status { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
 .loom-menu--float { position: absolute; top: calc(100% + 4px); right: 0; left: auto; z-index: 30; }
 .loom-menu-item { display: flex; align-items: center; min-height: 30px; padding: 4px 8px;
   border-radius: var(--dsw-radius-sm, 6px); font-size: 13px; line-height: 20px; cursor: pointer;
@@ -2615,140 +2633,226 @@ button.loom-role-summary:hover { background: var(--dsw-alias-bg-multi-select, rg
       return 'dsh-resource://file/absolute/' + segments.join('/')
     }
 
-    /** Role selector for the New Session row, next to the workspace and preset controls. */
-    function RoleOption(props) {
-      const sessionId = props?.sessionId
+    // The upstream header hides its utilities in the blank hero; the hero slot
+    // and the normal header slot use the same control without a second picker.
+    function SessionRoleOption({ sessionId, useSession, header = false }) {
+      const session = useSession(snapshot => snapshot)
+      const unavailable = !session || session.removed || (header && session.openState !== 'open')
+      const running = !!(session?.running || session?.pendingSubmissions?.length)
+      if (!sessionId) return null
+      return h(RoleOption, { key: sessionId, sessionId, header, unavailable, running })
+    }
+
+    function HeaderRoleOption(props) {
+      return h(SessionRoleOption, { ...props, header: true })
+    }
+
+    function RoleOption({ sessionId, header, unavailable, running }) {
       const [roles, setRoles] = useState([])
       const [bound, setBound] = useState(undefined)
       const [open, setOpen] = useState(false)
-      const [busy, setBusy] = useState(false)
+      const [position, setPosition] = useState(undefined)
+      const [loaded, setLoaded] = useState(false)
+      const [known, setKnown] = useState(false)
+      const [readError, setReadError] = useState(false)
       const [failed, setFailed] = useState(undefined)
+      const [writing, setWriting] = useState(false)
+      const [announcement, setAnnouncement] = useState('')
+      const pending = useRef(false)
+      const trigger = useRef(null)
+      const panel = useRef(null)
+      const request = useRef(null)
+      const menuId = useId()
+      const blocked = unavailable || running || writing
 
-      useEffect(() => {
-        let alive = true
-        const load = async () => {
-          try {
-            const [rolesResponse, sessionsResponse] = await Promise.all([
-              fetch('/skill-loom/roles', { headers: { accept: 'application/json' } }),
-              fetch('/skill-loom/sessions', { headers: { accept: 'application/json' } }),
-            ])
-            const rolesBody = rolesResponse.ok ? await rolesResponse.json() : { roles: [] }
-            const sessionsBody = sessionsResponse.ok ? await sessionsResponse.json() : { sessions: [] }
-            if (!alive) return
-            setRoles(Array.isArray(rolesBody.roles) ? rolesBody.roles.sort(byDisplayName) : [])
-            const mine = (sessionsBody.sessions ?? []).find(row => row.sessionId === sessionId)
-            setBound(mine?.roleId ?? undefined)
-          } catch (cause) {
-            if (alive) setFailed(String(cause?.message ?? cause))
-          }
+      const refresh = useCallback(async () => {
+        request.current?.abort()
+        const controller = new AbortController()
+        request.current = controller
+        const fetchJson = async url => {
+          const response = await fetch(url, { signal: controller.signal, headers: { accept: 'application/json' } })
+          if (!response.ok) throw new Error('HTTP ' + response.status)
+          return response.json()
         }
-        void load()
-        return () => { alive = false }
-      }, [sessionId])
-
-      const choose = async roleId => {
-        if (sessionId === undefined) return
-        setBusy(true)
+        setLoaded(false)
+        setReadError(false)
         setFailed(undefined)
         try {
-          const url = roleId === undefined ? '/skill-loom/sessions/unbind' : '/skill-loom/sessions/bind'
-          const payload = roleId === undefined ? { sessionId } : { sessionId, roleId }
-          const response = await fetch(url, {
+          const [rolesBody, binding] = await Promise.all([
+            fetchJson(API + '/roles'),
+            fetchJson(API + '/sessions?session=' + encodeURIComponent(sessionId)),
+          ])
+          if (controller.signal.aborted) return
+          if (!Array.isArray(rolesBody.roles) || !Object.hasOwn(binding, 'roleId')) throw new Error('invalid role response')
+          setRoles([...rolesBody.roles].sort(byDisplayName))
+          setBound(binding.roleId ?? undefined)
+          setLoaded(true)
+          setKnown(true)
+        } catch {
+          if (!controller.signal.aborted) {
+            setReadError(true)
+            setFailed('无法读取此会话的角色，请重试。')
+          }
+        }
+      }, [sessionId])
+
+      useEffect(() => {
+        void refresh()
+        return () => request.current?.abort()
+      }, [refresh])
+
+      const close = useCallback(restoreFocus => {
+        setOpen(false)
+        setPosition(undefined)
+        if (restoreFocus) trigger.current?.focus()
+      }, [])
+
+      useEffect(() => {
+        if (open && (running || unavailable)) close(false)
+      }, [open, running, unavailable, close])
+
+      useLayoutEffect(() => {
+        if (!open) return undefined
+        const update = () => {
+          const rect = trigger.current?.getBoundingClientRect()
+          if (!rect) return
+          const viewport = window.visualViewport
+          const leftEdge = (viewport?.offsetLeft ?? 0) + 8
+          const rightEdge = leftEdge + (viewport?.width ?? window.innerWidth) - 16
+          const topEdge = (viewport?.offsetTop ?? 0) + 8
+          const bottomEdge = topEdge + (viewport?.height ?? window.innerHeight) - 16
+          const width = Math.max(0, Math.min(264, rightEdge - leftEdge))
+          const left = Math.max(leftEdge, Math.min(rect.right - width, rightEdge - width))
+          const above = rect.top - topEdge - 5
+          const below = bottomEdge - rect.bottom - 5
+          setPosition(above > below && below < 160
+            ? { left, width, bottom: window.innerHeight - rect.top + 5, maxHeight: Math.min(240, Math.max(0, above)) }
+            : { left, width, top: rect.bottom + 5, maxHeight: Math.min(240, Math.max(0, below)) })
+        }
+        update()
+        window.addEventListener('resize', update)
+        window.addEventListener('scroll', update, true)
+        window.visualViewport?.addEventListener('resize', update)
+        window.visualViewport?.addEventListener('scroll', update)
+        return () => {
+          window.removeEventListener('resize', update)
+          window.removeEventListener('scroll', update, true)
+          window.visualViewport?.removeEventListener('resize', update)
+          window.visualViewport?.removeEventListener('scroll', update)
+        }
+      }, [open])
+
+      useEffect(() => {
+        if (!open) return undefined
+        const onPointer = event => {
+          if (!trigger.current?.contains(event.target) && !panel.current?.contains(event.target)) close(false)
+        }
+        const onEscape = event => {
+          if (event.key !== 'Escape') return
+          event.preventDefault()
+          event.stopPropagation()
+          close(true)
+        }
+        document.addEventListener('pointerdown', onPointer, true)
+        document.addEventListener('keydown', onEscape, true)
+        return () => {
+          document.removeEventListener('pointerdown', onPointer, true)
+          document.removeEventListener('keydown', onEscape, true)
+        }
+      }, [open, close])
+
+      const choose = async roleId => {
+        if (blocked || pending.current || !loaded) return
+        if (roleId === bound) { close(true); return }
+        pending.current = true
+        setWriting(true)
+        setFailed(undefined)
+        setAnnouncement('')
+        try {
+          const response = await fetch(API + (roleId === undefined ? '/sessions/unbind' : '/sessions/bind'), {
             method: 'POST',
             headers: { 'content-type': 'application/json' },
-            body: JSON.stringify(payload),
+            body: JSON.stringify(roleId === undefined ? { sessionId } : { sessionId, roleId }),
           })
-          if (!response.ok) {
-            const text = await response.text()
-            throw new Error('HTTP ' + response.status + ' ' + text.slice(0, 120))
-          }
+          if (!response.ok) throw new Error(response.status === 409
+            ? '会话正在运行，完成后再切换角色。'
+            : response.status === 404 ? '此角色已不存在，请重新打开选择器。' : '无法切换角色，请重试。')
           setBound(roleId)
-          setOpen(false)
+          if (header) setAnnouncement('角色已切换，从下一轮生效，历史消息不变。')
+          close(false)
+          requestAnimationFrame(() => trigger.current?.focus())
         } catch (cause) {
-          setFailed(String(cause?.message ?? cause))
+          setFailed(cause instanceof Error ? cause.message : '无法切换角色，请重试。')
         } finally {
-          setBusy(false)
+          pending.current = false
+          setWriting(false)
         }
       }
 
-      // Close on any pointer press outside the control, the way a native menu does.
-      const rootRef = useRef(undefined)
-      useEffect(() => {
-        if (!open) return undefined
-        const onDown = event => {
-          const node = rootRef.current
-          if (node !== null && node !== undefined && !node.contains(event.target)) setOpen(false)
-        }
-        document.addEventListener('pointerdown', onDown, true)
-        return () => document.removeEventListener('pointerdown', onDown, true)
-      }, [open])
-
-      const check = h('svg', {
-        viewBox: '0 0 16 16',
-        width: 14,
-        height: 14,
-        className: 'loom-menu-check',
-        'aria-hidden': true,
-      }, h('path', { d: 'M3.5 8.5l3 3 6-7', fill: 'none', stroke: 'currentColor', strokeWidth: 1.6, strokeLinecap: 'round', strokeLinejoin: 'round' }))
-
       const current = roles.find(role => role.id === bound)
-      return h('span', { ref: rootRef, style: { position: 'relative', display: 'inline-flex' } }, [
+      const label = current?.name ?? (bound ? '角色不可用' : known ? '默认角色' : '角色')
+      const title = running ? label + '（会话运行中，暂不可切换）' : failed ?? label
+      const option = (roleId, name, description) => h('button', {
+        key: roleId ?? 'default', type: 'button', className: 'loom-menu-item',
+        title: name, disabled: blocked, 'aria-pressed': roleId === bound,
+        onClick: () => void choose(roleId),
+      }, [
+        h('span', { key: 'text', className: 'loom-menu-text' }, [
+          h('span', { key: 'name', className: 'loom-menu-label' }, name),
+          description && h('span', { key: 'desc', className: 'loom-menu-desc' }, description),
+        ]),
+        roleId === bound ? h('span', { key: 'check', 'aria-hidden': true, className: 'loom-menu-check' }, '✓') : null,
+      ])
+
+      return h('span', { className: 'loom-session-role', 'data-loom-role-placement': header ? 'header' : 'hero' }, [
         h('style', { key: 'css' }, MENU_CSS),
         h('button', {
-          key: 'trigger',
-          type: 'button',
-          className: 'loom-option',
-          disabled: busy,
-          title: failed,
-          onClick: () => setOpen(value => !value),
+          key: 'trigger', ref: trigger, type: 'button', className: 'loom-option',
+          disabled: blocked, title, 'aria-label': '会话角色：' + title,
+          'aria-expanded': open, 'aria-controls': open ? menuId : undefined,
+          onClick: () => {
+            if (open) { close(false); return }
+            setOpen(true)
+            void refresh()
+          },
+          onKeyDown: event => {
+            if (event.key !== 'Tab' || event.shiftKey || !open) return
+            const first = panel.current?.querySelector('button:not(:disabled)')
+            if (first) { event.preventDefault(); first.focus() }
+          },
         }, [
           h('svg', {
-            key: 'icon',
-            viewBox: '0 0 16 16',
-            width: 16,
-            height: 16,
-            className: 'loom-option-icon',
-            'aria-hidden': true,
-          }, h('path', {
-            d: 'M8 2a3 3 0 1 1 0 6 3 3 0 0 1 0-6Zm-6 12c0-2.5 2.7-4 6-4s6 1.5 6 4v.5H2V14Z',
-            fill: 'currentColor',
-          })),
-          h('span', { key: 'label', className: 'loom-option-label' }, current?.name ?? '默认角色'),
+            key: 'icon', viewBox: '0 0 16 16', width: 16, height: 16,
+            className: 'loom-option-icon', 'aria-hidden': true,
+          }, h('path', { d: 'M8 2a3 3 0 1 1 0 6 3 3 0 0 1 0-6Zm-6 12c0-2.5 2.7-4 6-4s6 1.5 6 4v.5H2V14Z', fill: 'currentColor' })),
+          h('span', { key: 'label', className: 'loom-option-label' }, label),
           h('svg', {
-            key: 'chevron',
-            viewBox: '0 0 16 16',
-            width: 12,
-            height: 12,
-            className: 'loom-option-icon',
-            'aria-hidden': true,
+            key: 'chevron', viewBox: '0 0 16 16', width: 12, height: 12,
+            className: 'loom-option-icon', 'aria-hidden': true,
           }, h('path', { d: 'M4 6l4 4 4-4', fill: 'none', stroke: 'currentColor', strokeWidth: 1.5, strokeLinecap: 'round' })),
         ]),
-        open
-          ? h('div', { key: 'menu', className: 'loom-menu loom-menu--float', style: { left: 'auto', right: 0 } }, [
-            h('div', { key: 'none', className: 'loom-menu-item', onClick: () => void choose(undefined) }, [
-              h('span', { key: 't', className: 'loom-menu-text' }, [
-                h('span', { key: 'l', className: 'loom-menu-label' }, '默认'),
-                h('span', { key: 'd', className: 'loom-menu-desc' }, '不收窄技能，注入全部已加载技能'),
-              ]),
-              bound === undefined ? h('span', { key: 'c' }, check) : null,
-            ]),
-            ...roles.map(role => {
-              const description = role.description?.trim()
-              return h('div', {
-                key: role.id,
-                className: 'loom-menu-item',
-                title: role.name,
-                onClick: () => void choose(role.id),
-              }, [
-                h('span', { key: 't', className: 'loom-menu-text' }, [
-                  h('span', { key: 'l', className: 'loom-menu-label' }, role.name),
-                  description && h('span', { key: 'd', className: 'loom-menu-desc', title: description }, description),
-                ]),
-                bound === role.id ? h('span', { key: 'c' }, check) : null,
-              ])
-            }),
-          ])
-          : null,
+        header && h('span', { key: 'status', role: 'status', className: 'loom-session-role-status' }, announcement),
+        open && position ? createPortal(h('div', {
+          id: menuId, ref: panel, className: 'loom-menu loom-session-role-menu', style: position,
+          role: 'group', 'aria-label': '选择会话角色',
+          onBlur: event => {
+            if (event.relatedTarget && !panel.current?.contains(event.relatedTarget)
+              && event.relatedTarget !== trigger.current) close(false)
+          },
+          onKeyDown: event => {
+            if (event.key === 'Tab' && event.shiftKey && event.target === panel.current?.querySelector('button:not(:disabled)')) {
+              event.preventDefault()
+              trigger.current?.focus()
+            }
+          },
+        }, [
+          failed && h('div', { key: 'error', className: 'loom-session-role-error', role: 'alert' }, failed),
+          readError ? h('button', { key: 'retry', type: 'button', className: 'loom-menu-item', onClick: () => void refresh() }, '重试')
+            : !loaded ? h('div', { key: 'loading', className: 'loom-menu-empty', role: 'status' }, '加载中…')
+              : option(undefined, '默认角色', '不收窄技能，注入全部已加载技能'),
+          ...(loaded ? roles.map(role => option(role.id, role.name, role.description?.trim())) : []),
+          header && loaded && h('div', { key: 'hint', className: 'loom-session-role-hint' }, '角色从下一轮生效，历史消息不变。'),
+        ]), document.body, 'menu') : null,
       ])
     }
 
@@ -2778,7 +2882,12 @@ button.loom-role-summary:hover { background: var(--dsw-alias-bg-multi-select, rg
           name: 'conversation.hero.options',
           id: 'skill-loom-role',
           order: 50,
-        }, RoleOption))
+        }, SessionRoleOption))
+        ctx.slots.inject('conversation.session.header.utilities', () => ctx.slots.register({
+          name: 'conversation.session.header.utilities',
+          id: 'skill-loom-session-role',
+          order: 50,
+        }, HeaderRoleOption))
 
         // The right sidebar keeps the conversation visible, which is the whole
         // point of a second surface. The services can arrive after this module
