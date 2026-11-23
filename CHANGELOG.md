@@ -1,5 +1,10 @@
 # 更新记录 / Changelog
 
+## 0.1.4
+
+- 技能库悬停始终提供简介与来源，不再要求角色画布；图和计划就绪后才显示纳入状态及依赖关系。
+- Skill-library hover details always show description and source; membership and dependencies require a ready graph and plan.
+
 ## 0.1.3
 
 - 中英文 README 统一使用插件名，并在开头概括角色编排、能力族与会话技能范围。

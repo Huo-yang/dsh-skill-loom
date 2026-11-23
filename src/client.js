@@ -1736,7 +1736,8 @@ button.loom-role-summary:hover { background: var(--dsw-alias-bg-multi-select, rg
       const feedbackText = error ?? (notice === FAMILY_SAVED ? undefined : notice)
       const hover = libraryHover.hover
       const skillDetailGraph = familyDraft ? draftGraph : roleCanvas && libraryTab === 'skills' ? role : undefined
-      const hoveredSkill = skillDetailGraph && hover?.kind === 'skill'
+      const skillDetailPlan = skillDetailGraph ? (familyDraft ? draftPlan : plan) : undefined
+      const hoveredSkill = hover?.kind === 'skill'
         ? filtered.find(skill => skill.name === hover.id) : undefined
       const familyKeywords = familyQuery.toLowerCase().trim().split(/\s+/).filter(Boolean)
       const visibleFamilies = families.filter(family => {
@@ -1777,7 +1778,7 @@ button.loom-role-summary:hover { background: var(--dsw-alias-bg-multi-select, rg
             onPointerDown: event => event.stopPropagation(),
           }, hoveredFamily ? h(LibraryDetail, { kind: 'family', name: familyName(hoveredFamily) },
             h('div', { style: styles.muted }, familyDescription(hoveredFamily) || t('暂无简介', 'No description'))) : h(SkillDetail, {
-            key: hoveredSkill.name, graph: skillDetailGraph, plan: shownPlan,
+            key: hoveredSkill.name, graph: skillDetailGraph, plan: skillDetailPlan,
             kind: familyDraft ? 'family' : 'role', skills: list.skills, skillName: hoveredSkill.name,
             apps, appsLoading, loadApps, launchInApp, folderOf,
           })),
@@ -2104,7 +2105,7 @@ button.loom-role-summary:hover { background: var(--dsw-alias-bg-multi-select, rg
                   className: 'loom-card loom-skill-card',
                   'data-selected': (familyDraft ? draftSelection : selectedSkill) === skill.name,
                   tabIndex: 0, role: 'button',
-                  ...(skillDetailGraph && libraryHover.bind('skill', skill.name)),
+                  ...libraryHover.bind('skill', skill.name),
                   ...bindLibraryDrag({ name: skill.name, color: stateColor }, () => {
                     if (familyDraft) setDraftSelection(skill.name)
                     else setSelectedSkill(skill.name)
@@ -2518,22 +2519,26 @@ button.loom-role-summary:hover { background: var(--dsw-alias-bg-multi-select, rg
         document.addEventListener('pointerdown', onDown, true)
         return () => document.removeEventListener('pointerdown', onDown, true)
       }, [pickerOpen])
-      useEffect(() => setPickerOpen(false), [skillName, graph.id])
+      useEffect(() => setPickerOpen(false), [skillName, graph?.id])
 
-      const members = plan.members ?? []
+      // Catalog metadata remains useful before a canvas is available. Never
+      // interpret a missing/loading graph or plan as an excluded skill.
+      const hasGraphContext = !!graph && Array.isArray(graph.edges) && Array.isArray(plan?.members)
+      const members = hasGraphContext ? plan.members : []
       const member = members.includes(skillName)
       const info = (skills ?? []).find(skill => skill.name === skillName)
-      const outgoing = (graph.edges ?? []).filter(edge => edge.from === skillName).sort((a, b) => compareName(a.to, b.to))
-      const incoming = (graph.edges ?? []).filter(edge => edge.to === skillName).sort((a, b) => compareName(a.from, b.from))
+      const outgoing = (hasGraphContext ? graph.edges : []).filter(edge => edge.from === skillName).sort((a, b) => compareName(a.to, b.to))
+      const incoming = (hasGraphContext ? graph.edges : []).filter(edge => edge.to === skillName).sort((a, b) => compareName(a.from, b.from))
 
-      const stateLabel = (plan.red ?? []).includes(skillName)
+      const stateLabel = !hasGraphContext ? undefined : (plan.red ?? []).includes(skillName)
         ? t('缺失（红）', 'Missing (red)')
         : (plan.gray ?? []).some(row => row.name === skillName) ? t('受阻（灰）', 'Blocked (gray)') : member ? t('可用', 'Available') : t('未纳入', 'Excluded')
 
       const children = [
-        h('div', { key: 'state', style: styles.muted }, `${stateLabel}${info?.source ? ` · ${info.source}` : ''}`),
+        stateLabel && h('div', { key: 'state', style: styles.muted }, stateLabel),
+        h('div', { key: 'source', style: styles.muted }, t('来源：', 'Source: ') + (info?.source?.trim() || t('未知', 'Unknown'))),
+        h('div', { key: 'desc', style: { ...styles.muted, marginTop: 6 } }, info?.description?.trim() || t('暂无简介', 'No description')),
       ]
-      if (info?.description) children.push(h('div', { key: 'desc', style: { ...styles.muted, marginTop: 6 } }, info.description))
       if (info?.path !== undefined) {
         // One entry, no shortcut: the user always picks the application, so a
         // stray click never launches something they did not choose.
@@ -2575,6 +2580,8 @@ button.loom-role-summary:hover { background: var(--dsw-alias-bg-multi-select, rg
                 ]))),
         ]))
       }
+      if (!hasGraphContext) return h(LibraryDetail, { kind: 'skill', name: skillName }, children)
+
       children.push(h('div', { key: 'member', style: styles.section },
         h('div', { style: styles.empty },
           member ? t('已纳入该' + kindName(kind) + '。', 'Included in this ' + kindName(kind) + '.') : t('尚未纳入。拖到' + kindName(kind) + '节点即可纳入。', 'Drag onto the ' + kindName(kind) + ' node to include it.'))))

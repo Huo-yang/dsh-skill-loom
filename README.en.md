@@ -40,7 +40,7 @@ Restart DSH Web if it is already running, then open Skill Loom from the left nav
 1. **Build a role.** Create a role and drag skills from the library onto its root. Drop a skill onto another skill to connect them. Drag an existing node to the canvas removal zone to remove it.
 2. **Reuse an ability family.** An ability family stores related skills and their dependencies. Drop one onto the role root or another skill to add missing nodes and edges. Existing skills are shared.
 3. **Save and bind.** Graph changes stay in a draft with undo and redo until you save. Choose a role next to the composer when starting a DSH conversation. Once it starts, use the session header to see the active role, switch it, or restore the default. Switching is unavailable while the session is running. The role description appears in the UI. The persona you set in the upper-right canvas controls is injected into bound sessions.
-4. **Inspect health.** Red indicates a missing skill. Gray indicates a skill directly or indirectly blocked by a missing dependency. Hover over a skill to inspect its description, dependencies and membership.
+4. **Inspect health.** Hover over a skill in the library to see its description and source, even before selecting a role. An empty source is shown as “Unknown”. Dependencies and membership appear once the current role or ability-family draft has a graph and plan ready. Red indicates a missing skill. Gray indicates a skill directly or indirectly blocked by a missing dependency.
 
 ### Let DSH edit the graph
 
