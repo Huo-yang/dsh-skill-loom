@@ -28,7 +28,7 @@ import { defineTool } from '@deepseek-ai/dsh-tools'
 import { PERSONA_PREFIX_SECTION } from '@deepseek-ai/dsh-system-prompt'
 
 import { RoleGraphError, createRoleGraphApi } from './api.js'
-import { computeHealth } from './graph.js'
+import { computeHealth, validateRoleId } from './graph.js'
 import { BindingStore, bindingsFileFor } from './bindings.js'
 import { restoreBoundRoles, sessionIdOf } from './lifecycle.js'
 import { installRole } from './runtime.js'
@@ -459,10 +459,10 @@ export function apply(ctx, config = {}) {
   }))
   ctx.tools.register(defineTool({
     name: 'role_family',
-    description: 'List, inspect, create, update, or apply reusable Skill Loom ability families.',
+    description: 'List, inspect, create, update, apply, or explicitly delete reusable Skill Loom ability families. For delete, first list/show the exact ID and revision, explain that only the template is removed (skill files and applied role graphs remain), and obtain explicit user confirmation. On stale revision show the latest record; never silently retry.',
     parameters: {
-      action: { type: 'string', required: true, description: 'list | show | create | update | apply' },
-      family: { type: 'string', description: 'Ability family ID or unique display name.' },
+      action: { type: 'string', required: true, description: 'list | show | create | update | apply | delete' },
+      family: { type: 'string', description: 'Ability family ID or unique display name; delete accepts only the exact ID.' },
       name: { type: 'string', description: 'Ability family display name.' },
       description: { type: 'string', description: 'Short summary, at most 160 characters.' },
       members: { type: 'array', items: { type: 'string' }, description: 'Complete skill membership for a new or edited graph.' },
@@ -475,12 +475,24 @@ export function apply(ctx, config = {}) {
       }, description: 'Complete requires edges, each with a reason of at most 80 characters.' },
       role: { type: 'string', description: 'Destination role ID or display name for apply.' },
       target: { type: 'string', description: 'Optional skill in the destination role. Omit to attach at the role root.' },
-      revision: { type: 'number', description: 'Current family revision required for update.' },
+      revision: { type: 'number', description: 'Current family revision required for update; delete requires the caller-provided positive integer from list/show.' },
+      confirm: { type: 'boolean', description: 'For delete only: true after the user explicitly confirms removing this template. Does not delete skill files or graphs already applied to roles.' },
     },
     output: graphToolsOutput,
     execute(args) {
       return serialize(async () => {
         if (args.action === 'list') return { families: await families.list() }
+        if (args.action === 'delete') {
+          if (typeof args.family !== 'string' || (!validateRoleId(args.family).ok && !PRESETS.some(item => item.id === args.family))) {
+            throw new RoleGraphError('FAMILY_ID_REQUIRED', 'Delete requires an exact family ID from list/show, not a display name.')
+          }
+          if (args.confirm !== true) throw new RoleGraphError('FAMILY_CONFIRM', 'Explicit user confirmation (confirm=true) is required to delete this template.')
+          if (!Number.isSafeInteger(args.revision) || args.revision <= 0) {
+            throw new RoleGraphError('FAMILY_REVISION', 'Provide the current positive integer revision from list/show; stale requests must be reviewed again.')
+          }
+          const deleted = await families.change({ action: 'delete', id: args.family, expectedRevision: args.revision })
+          return { deleted, scope: 'family-template-only', preserved: ['skill files', 'graphs already applied to roles'] }
+        }
         const family = args.action === 'create' ? undefined : await familyFor(args.family)
         if (args.action === 'show') return { family }
         if (args.action === 'apply') {

@@ -102,3 +102,5 @@ dsh plugin --profile web remove @huo-yang/dsh-skill-loom
 本项目采用 [MIT 许可证](LICENSE)。
 
 创建角色时，`role_graph` 和 Web API 均接受可选 `description`，与编辑简介一致：合并空白、最多 160 字符；省略时不生成简介。列表、详情与重新加载保留该字段。退役检查区分目录未知、目录不可解析、已知文件缺失和独立的退役状态。清理预览列出待移除依赖边及冲突约束；删除 B 会改变 A→B 的语义，必须先明确确认图变更并保存，再单独确认退役。
+
+能力族工具支持显式删除：先用 `role_family list/show` 查看精确 ID、版本和名称，说明仅删除模板并取得用户确认，再调用 `role_family({action:"delete",family:"<精确ID>",revision:当前正整数版本,confirm:true})`。展示名、缺少确认或无效／过期版本均被拒绝；过期后须重新展示记录，不可静默重试。内置预设不可删除；技能文件与已经应用到角色的图不受影响，角色引用仍会阻止技能退役。

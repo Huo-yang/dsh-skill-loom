@@ -219,6 +219,49 @@ test('live edits refresh the bound agent and an unsuccessful bind preserves its 
 
   })
 
+  await t.test('registered family delete requires an exact ID, explicit confirmation and caller revision', async t => {
+    const familyTool = args => tools.get('role_family').execute(args, { agent })
+    catalog.push({ name: 'delete-family-synthetic', description: 'Synthetic deletion dependency' })
+    const created = (await familyTool({ action: 'create', name: 'Delete test template', members: ['delete-family-synthetic'], edges: [] })).family
+    const role = (await run({ action: 'create', name: 'Applied template remains' })).result.role
+    await familyTool({ action: 'apply', family: created.id, role: role.id })
+    const applied = (await run({ action: 'show', role: role.id })).result.role
+    const base = { action: 'delete', family: created.id, confirm: true, revision: created.revision }
+    for (const [name, overrides, error] of [
+      ['missing ID', { family: undefined }, { code: 'FAMILY_ID_REQUIRED' }],
+      ['display name', { family: created.name }, { code: 'FAMILY_ID_REQUIRED' }],
+      ['missing confirmation', { confirm: undefined }, { code: 'FAMILY_CONFIRM' }],
+      ['false confirmation', { confirm: false }, { code: 'FAMILY_CONFIRM' }],
+      ['string confirmation', { confirm: 'true' }, { code: 'FAMILY_CONFIRM' }],
+      ...[undefined, 0, -1, 1.5, '1', NaN, Infinity, Number.MAX_SAFE_INTEGER + 1].map(value => ['bad revision ' + String(value), { revision: value }, { code: 'FAMILY_REVISION' }]),
+      ['stale revision', { revision: created.revision + 1 }, { name: 'RoleConflictError' }],
+      ['builtin', { family: 'builtin-role-orchestration', revision: 1 }, { code: 'FAMILY_BUILTIN' }],
+      ['absent ID', { family: '11111111-1111-4111-8111-111111111111' }, { code: 'FAMILY_NOT_FOUND' }],
+    ]) await t.test(name, async () => {
+      await assert.rejects(familyTool({ ...base, ...overrides }), error)
+      assert.deepEqual((await familyTool({ action: 'show', family: created.id })).family, created)
+      assert.deepEqual((await run({ action: 'show', role: role.id })).result.role, applied)
+    })
+    // A Web edit invalidates the model's reviewed revision; no implicit refresh.
+    const { result: updated } = await post('/families', { action: 'update', id: created.id, expectedRevision: created.revision, name: created.name, description: 'Changed on Web' })
+    await assert.rejects(familyTool(base), { name: 'RoleConflictError' })
+    await post('/families', { action: 'delete', id: created.id, expectedRevision: created.revision }, 409)
+    assert.equal((await post('/families', { action: 'delete', id: 'builtin-role-orchestration', expectedRevision: 1 }, 400)).code, 'FAMILY_BUILTIN')
+    const deleted = await familyTool({ ...base, revision: updated.revision })
+    assert.deepEqual(deleted, { deleted: { id: created.id }, scope: 'family-template-only', preserved: ['skill files', 'graphs already applied to roles'] })
+    assert.equal((await familyTool({ action: 'list' })).families.some(f => f.id === created.id), false)
+    assert.deepEqual((await run({ action: 'show', role: role.id })).result.role, applied)
+    await assert.rejects(familyTool({ ...base, revision: updated.revision }), { code: 'FAMILY_NOT_FOUND' })
+    const lifecycle = args => tools.get('skill_retirement').execute(args)
+    const status = await lifecycle({ action: 'inspect', name: 'delete-family-synthetic' })
+    assert.ok(status.skill.references.some(ref => ref.kind === 'role' && ref.id === role.id))
+    assert.equal(status.skill.references.some(ref => ref.kind === 'family' && ref.id === created.id), false)
+    await assert.rejects(lifecycle({ action: 'retire', name: 'delete-family-synthetic', revision: status.revision, confirm: true }), { code: 'SKILL_REFERENCED' })
+    const webFamily = (await familyTool({ action: 'create', name: 'Web delete parity', members: ['review'], edges: [] })).family
+    assert.deepEqual((await post('/families', { action: 'delete', id: webFamily.id, expectedRevision: webFamily.revision })).result, { id: webFamily.id })
+    await assert.rejects(familyTool({ ...base, family: webFamily.id, revision: webFamily.revision }), { code: 'FAMILY_NOT_FOUND' })
+  })
+
   await t.test('the bundled skills can compose a family and queue review for the calling session', async () => {
     const familyTool = args => tools.get('role_family').execute(args, { agent })
     const preset = (await familyTool({ action: 'show', family: 'builtin-role-orchestration' })).family

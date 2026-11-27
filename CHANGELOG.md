@@ -2,6 +2,9 @@
 
 ## 未发布 / Unreleased
 
+- `role_family delete` 支持显式删除能力族模板：精确 ID、用户确认与当前版本必填，复用 Web 内置保护和并发校验，不修改已应用角色图或技能文件。
+- Add confirmed, exact-ID family template deletion through the registered tool, sharing Web protection and revision checks while preserving applied role graphs and skill files.
+
 - 修复工具与 Web 创建角色时可选简介被丢弃：统一校验，持久化并在列表及详情回读。
 - 删除技能预览与提交共用变换，并明确展示待删除依赖边及冲突约束。
 - Preserve optional descriptions through tool/Web role creation and readback; align removal previews with committed edge/conflict changes.
