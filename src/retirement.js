@@ -59,7 +59,10 @@ export function createRetirement({ directory, stores, builtins = [], catalog }) 
       catch (error) { if (error.code === 'ENOENT') return undefined; throw error }
     }
     const before = await bytes()
-    await writeFile(pending, JSON.stringify({ schema: 1, graphFile, previousGraph: before ?? null, intendedMetadata: data }) + '\n', { flag: 'wx', mode: 0o600 })
+    let previousMetadata = null
+    try { previousMetadata = await readFile(file, 'utf8') }
+    catch (error) { if (error.code !== 'ENOENT') throw error }
+    await writeFile(pending, JSON.stringify({ schema: 1, graphFile, previousGraph: before ?? null, previousMetadata, intendedMetadata: data }) + '\n', { flag: 'wx', mode: 0o600 })
     try {
       const result = await operation()
       await persist(data)

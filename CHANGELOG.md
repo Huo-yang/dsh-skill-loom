@@ -2,6 +2,9 @@
 
 ## 0.1.5
 
+- 待处理标记保留图和元数据原字节，补充离线保守回滚流程及“最后一个缺失引用”的插件重启／Web／工具回归。
+- Pending markers retain exact pre-write graph and metadata bytes; document and test offline rollback and restart-safe last-reference recovery.
+
 - 部分图／元数据写失败留下待核对标记，阻止将不完整清理误判为成功；普通未改动图的失败不消费历史或阻断后续读取。
 - Partial graph/metadata writes fail closed behind a pending marker until reviewed; no external MCP JSON-RPC transport is claimed.
 
