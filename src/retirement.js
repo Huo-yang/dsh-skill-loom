@@ -15,6 +15,7 @@ const metadata = skill => Object.fromEntries(['name', 'description', 'source', '
 export function createRetirement({ directory, stores, builtins = [], catalog }) {
   const file = join(directory, 'skill-retirement.json')
   const lock = join(directory, '.skill-loom-write-lock')
+  const pending = join(directory, '.skill-loom-pending-write.json')
   const observed = new Map()
   async function state() {
     let value
@@ -46,7 +47,35 @@ export function createRetirement({ directory, stores, builtins = [], catalog }) 
     }
     return result
   }
+  async function assertComplete() {
+    try { await stat(pending) }
+    catch (error) { if (error.code === 'ENOENT') return; throw error }
+    fail('RETIREMENT_UNCERTAIN', 'An incomplete graph/metadata write requires review. No references can be confirmed; do not retire skills or remove the marker without reconciling both files.')
+  }
+  async function graphWrite(store, id, data, operation) {
+    const graphFile = store.fileOf(id)
+    const bytes = async () => {
+      try { return await readFile(graphFile, 'utf8') }
+      catch (error) { if (error.code === 'ENOENT') return undefined; throw error }
+    }
+    const before = await bytes()
+    await writeFile(pending, JSON.stringify({ schema: 1, graphFile, previousGraph: before ?? null, intendedMetadata: data }) + '\n', { flag: 'wx', mode: 0o600 })
+    try {
+      const result = await operation()
+      await persist(data)
+      await rm(pending)
+      return result
+    } catch (error) {
+      // An ordinary validation/revision failure can be cleared only when the
+      // graph is provably byte-identical. Partial/uncertain writes stay blocked.
+      let unchanged = false
+      try { unchanged = await bytes() === before } catch {}
+      if (unchanged) { await rm(pending); throw error }
+      fail('RETIREMENT_UNCERTAIN', 'Graph/metadata write did not finish. Reload is blocked pending review; no successful cleanup is confirmed.')
+    }
+  }
   async function snapshot() {
+    await assertComplete()
     const data = await state()
     const groups = []
     for (const { kind, store } of stores) for (const graph of await graphs(store)) groups.push({ kind, graph })
@@ -160,10 +189,16 @@ export function createRetirement({ directory, stores, builtins = [], catalog }) 
     })
   }
   for (const { store } of stores) {
-    const save = store.save.bind(store), remove = store.remove.bind(store)
+    // The underlying store may read during its own write. Keep those internal
+    // reads separate from public reads, which must reject a pending transaction.
+    const raw = Object.create(store)
+    raw.readAll = () => graphs(store)
+    raw.read = async id => (await graphs(store)).find(graph => graph.id === id)
+    const save = store.save.bind(raw), remove = store.remove.bind(raw)
     // Strict reads neither create directories nor quarantine/ignore malformed data.
-    store.readAll = () => graphs(store)
+    store.readAll = async () => { await assertComplete(); return graphs(store) }
     store.read = async id => {
+      await assertComplete()
       if (!validateRoleId(id).ok) fail('INVALID_ID', 'Invalid graph ID.')
       return (await graphs(store)).find(graph => graph.id === id)
     }
@@ -173,10 +208,8 @@ export function createRetirement({ directory, stores, builtins = [], catalog }) 
       if (forbidden.length) fail('SKILL_RETIRED', 'Restore these skills before saving references.', { names: forbidden })
       const { repo } = await available()
       const all = known(data, [...groups, { graph }], repo)
-      const result = await save(graph, options)
       data.known = Object.fromEntries(all)
-      await persist(data)
-      return result
+      return graphWrite(store, graph.id, data, () => save(graph, options))
     })
     store.remove = (id, options = {}) => withLock(async () => {
       const { data, groups } = await snapshot()
@@ -186,9 +219,8 @@ export function createRetirement({ directory, stores, builtins = [], catalog }) 
       }
       const { repo } = await available()
       data.known = Object.fromEntries(known(data, groups, repo))
-      const result = await remove(id)
-      if (result) await persist(data)
-      return result
+      if (!current) return false
+      return graphWrite(store, id, data, () => remove(id))
     })
   }
   return { list, handle }

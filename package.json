@@ -1,6 +1,6 @@
 {
   "name": "@huo-yang/dsh-skill-loom",
-  "version": "0.1.4",
+  "version": "0.1.5",
   "type": "module",
   "description": "Compose skill dependency graphs into session-scoped roles and reusable ability families for DeepSeek Harness.",
   "license": "MIT",

@@ -206,3 +206,58 @@ test('unknown graph schemas and quarantined files block inventory without mutati
   await assert.rejects(f.service.list(), { code: 'RETIREMENT_UNCERTAIN' })
   assert.deepEqual(await readdir(f.directory), before)
 })
+
+test('partial graph/metadata failure is never reported as successful cleanup and blocks reads across restart', async t => {
+  const directory = await mkdtemp(join(tmpdir(), 'loom-write-failure-'))
+  t.after(() => rm(directory, { recursive: true, force: true }))
+  let failMetadata = false, failGraph = false
+  class FaultStore extends RoleStore {
+    async save(value, options) {
+      if (failGraph) throw new Error('synthetic graph write failure')
+      const saved = await super.save(value, options)
+      if (failMetadata) {
+        await rm(join(directory, 'skill-retirement.json'), { force: true })
+        await mkdir(join(directory, 'skill-retirement.json')) // force metadata rename to fail
+      }
+      return saved
+    }
+  }
+  const roles = new FaultStore(directory)
+  const catalog = async () => new Map([['a', { name: 'a' }], ['b', { name: 'b' }]])
+  const service = createRetirement({ directory, stores: [{ kind: 'role', store: roles }], catalog })
+  const saved = await roles.save(graph())
+  const before = await readFile(join(directory, id + '.json'), 'utf8')
+  failGraph = true
+  await assert.rejects(roles.save(graph({ edges: [], members: [] }), { expectedRevision: saved.revision }), /synthetic graph write failure/)
+  assert.equal(await readFile(join(directory, id + '.json'), 'utf8'), before)
+  assert.equal((await service.handle({ action: 'inspect', name: 'b' })).skill.references.length, 1)
+  failGraph = false; failMetadata = true
+  await assert.rejects(roles.save(graph({ edges: [], members: [] }), { expectedRevision: saved.revision }), { code: 'RETIREMENT_UNCERTAIN' })
+  assert.equal(JSON.parse(await readFile(join(directory, id + '.json'), 'utf8')).edges.length, 0)
+  await assert.rejects(service.list(), { code: 'RETIREMENT_UNCERTAIN' })
+  await assert.rejects(roles.read(id), { code: 'RETIREMENT_UNCERTAIN' })
+  await assert.rejects(roles.readAll(), { code: 'RETIREMENT_UNCERTAIN' })
+  const restartedRoles = new RoleStore(directory)
+  const restarted = createRetirement({ directory, stores: [{ kind: 'role', store: restartedRoles }], catalog })
+  await assert.rejects(restarted.handle({ action: 'retire', name: 'b', confirm: true, revision: 'old' }), { code: 'RETIREMENT_UNCERTAIN' })
+  await assert.rejects(restartedRoles.save(graph()), { code: 'RETIREMENT_UNCERTAIN' })
+})
+
+test('partial template deletion also retains a blocking transaction marker', async t => {
+  const directory = await mkdtemp(join(tmpdir(), 'loom-delete-failure-'))
+  t.after(() => rm(directory, { recursive: true, force: true }))
+  class FaultStore extends RoleStore {
+    async remove(id) {
+      const result = await super.remove(id)
+      await rm(join(directory, 'skill-retirement.json'), { force: true })
+      await mkdir(join(directory, 'skill-retirement.json'))
+      return result
+    }
+  }
+  const store = new FaultStore(join(directory, 'families'))
+  const service = createRetirement({ directory, stores: [{ kind: 'family', store }], catalog: async () => new Map() })
+  const saved = await store.save(graph())
+  await assert.rejects(store.remove(id, { expectedRevision: saved.revision }), { code: 'RETIREMENT_UNCERTAIN' })
+  await assert.rejects(service.list(), { code: 'RETIREMENT_UNCERTAIN' })
+  await assert.rejects(store.readAll(), { code: 'RETIREMENT_UNCERTAIN' })
+})

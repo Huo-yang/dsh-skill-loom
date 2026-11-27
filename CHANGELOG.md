@@ -1,6 +1,9 @@
 # 更新记录 / Changelog
 
-## 未发布 / Unreleased
+## 0.1.5
+
+- 部分图／元数据写失败留下待核对标记，阻止将不完整清理误判为成功；普通未改动图的失败不消费历史或阻断后续读取。
+- Partial graph/metadata writes fail closed behind a pending marker until reviewed; no external MCP JSON-RPC transport is claimed.
 
 - `role_family delete` 支持显式删除能力族模板：精确 ID、用户确认与当前版本必填，复用 Web 内置保护和并发校验，不修改已应用角色图或技能文件。
 - Add confirmed, exact-ID family template deletion through the registered tool, sharing Web protection and revision checks while preserving applied role graphs and skill files.
