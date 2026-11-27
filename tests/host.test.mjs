@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { mkdtemp, mkdir, rm } from 'node:fs/promises'
+import { mkdtemp, mkdir, rm, readFile } from 'node:fs/promises'
 import * as module from 'node:module'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -119,6 +119,26 @@ test('live edits refresh the bound agent and an unsuccessful bind preserves its 
     return body
   }
   const post = request
+  await t.test('registered role tool and Web create preserve optional descriptions through disk and readback', async () => {
+    const created = (await run({ action: 'create', name: 'Described tool role', description: '  Review\n documents  ' })).result.role
+    assert.equal(created.description, 'Review documents')
+    assert.equal((await run({ action: 'show', role: created.id })).result.role.description, created.description)
+    assert.equal((await run({ action: 'list' })).result.find(r => r.id === created.id).description, created.description)
+    assert.equal((await request('/roles')).roles.find(r => r.id === created.id).description, created.description)
+    assert.equal(JSON.parse(await readFile(join(rolesDir, created.id + '.json'), 'utf8')).description, created.description)
+    const web = await post('/roles', { name: 'Described Web role', description: '  Web   description ' })
+    assert.equal(web.role.description, 'Web description')
+    await run({ action: 'set_description', role: web.role.id, description: 'Updated description', expectedRevision: web.role.revision })
+    await assert.rejects(run({ action: 'set_description', role: web.role.id, description: 'Stale overwrite', expectedRevision: web.role.revision }), /changed since it was read/)
+    await run({ action: 'set_description', role: web.role.id, description: 'Web description' })
+    assert.equal((await run({ action: 'show', role: web.role.id })).result.role.description, 'Web description')
+    const legacy = (await run({ action: 'create', name: 'Legacy tool role' })).result.role
+    assert.equal(Object.hasOwn(legacy, 'description'), false)
+    assert.equal(Object.hasOwn((await post('/roles', { name: 'Legacy Web role' })).role, 'description'), false)
+    await assert.rejects(run({ action: 'create', name: 'Bad description', description: 42 }), /INVALID_DESCRIPTION/)
+    await assert.rejects(run({ action: 'create', name: 'Long description', description: 'x'.repeat(161) }), /INVALID_DESCRIPTION/)
+    assert.equal((await post('/roles', { name: 'Bad Web description', description: 42 }, 400)).code, 'INVALID_DESCRIPTION')
+  })
   catalog.push({ name: 'format' })
   await t.test('role graph previews do not persist or refresh the bound agent', async () => {
     catalog.push({ name: 'proof' })
@@ -165,6 +185,38 @@ test('live edits refresh the bound agent and an unsuccessful bind preserves its 
     assert.deepEqual(undone.role.members, second.members)
     assert.deepEqual(undone.role.edges, second.edges)
     assert.equal(undone.history.undo, 0)
+  })
+
+  await t.test('tool and HTTP retirement reject saved references and do not consume rejected undo/redo', async () => {
+    catalog.push({ name: 'retirement-test', description: 'Synthetic retirement target' })
+    const lifecycle = args => tools.get('skill_retirement').execute(args)
+    const role = (await run({ action: 'create', name: 'Retirement history', add: ['retirement-test'] })).result.role
+    const before = await lifecycle({ action: 'inspect', name: 'retirement-test' })
+    assert.equal((await post('/skills', { action: 'retire', name: 'retirement-test', confirm: true, revision: before.revision }, 400)).code, 'SKILL_REFERENCED')
+    await assert.rejects(lifecycle({ action: 'retire', name: 'retirement-test', confirm: true, revision: before.revision }), { code: 'SKILL_REFERENCED' })
+    const clean = (await run({ action: 'remove_members', role: role.id, remove: ['retirement-test'] })).result.role
+    const state = await request('/skills')
+    await lifecycle({ action: 'retire', name: 'retirement-test', confirm: true, revision: state.revision })
+    const route = '/roles/' + role.id
+    const historyBefore = (await request(route)).history
+    await post(route + '/history', { action: 'undo', expectedRevision: clean.revision }, 400)
+    assert.deepEqual((await request(route)).history, historyBefore)
+    assert.deepEqual((await request(route)).role.members, [])
+    const fresh = await lifecycle({ action: 'inspect', name: 'retirement-test' })
+    await post('/skills', { action: 'restore', name: 'retirement-test', confirm: true, revision: fresh.revision })
+    const undone = await post(route + '/history', { action: 'undo', expectedRevision: clean.revision })
+    const redone = await post(route + '/history', { action: 'redo', expectedRevision: undone.role.revision })
+    const retiredAgain = await lifecycle({ action: 'inspect', name: 'retirement-test' })
+    await lifecycle({ action: 'retire', name: 'retirement-test', confirm: true, revision: retiredAgain.revision })
+    await post(route + '/history', { action: 'undo', expectedRevision: redone.role.revision }, 400)
+    assert.deepEqual((await request(route)).history, redone.history)
+    await lifecycle({ action: 'restore', name: 'retirement-test', confirm: true, revision: (await lifecycle({ action: 'inspect', name: 'retirement-test' })).revision })
+    const added = (await run({ action: 'add_members', role: role.id, add: ['retirement-test'] })).result.role
+    const cleanUndo = await post(route + '/history', { action: 'undo', expectedRevision: added.revision })
+    await lifecycle({ action: 'retire', name: 'retirement-test', confirm: true, revision: (await lifecycle({ action: 'inspect', name: 'retirement-test' })).revision })
+    await post(route + '/history', { action: 'redo', expectedRevision: cleanUndo.role.revision }, 400)
+    assert.deepEqual((await request(route)).history, cleanUndo.history)
+
   })
 
   await t.test('the bundled skills can compose a family and queue review for the calling session', async () => {

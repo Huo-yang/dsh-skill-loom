@@ -2,7 +2,7 @@ import { RoleGraphError } from './api.js'
 import { findCycles, newRoleId, requiresClosure, validateRoleName } from './graph.js'
 import { RoleConflictError } from './store.js'
 
-const PRESETS = [{
+export const PRESETS = [{
   id: 'builtin-role-orchestration',
   name: '技能编排助手',
   builtin: true,
@@ -81,7 +81,7 @@ export function createFamilyLibrary(store, roles) {
         throw new RoleConflictError(id, expectedRevision, current.revision)
       }
       if (action === 'delete') {
-        await store.remove(id)
+        await store.remove(id, { expectedRevision: current.revision })
         return { id }
       }
 

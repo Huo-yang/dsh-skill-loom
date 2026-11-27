@@ -102,7 +102,11 @@ export function captureAnchors(role, repository) {
   const anchors = {}
   for (const name of referencedNames(role)) {
     const entry = index.get(name)
-    if (entry === undefined) continue
+    if (entry === undefined) {
+      // Saving an unrelated edit must not erase evidence of a missing file.
+      if (role?.anchors?.[name]) anchors[name] = { ...role.anchors[name] }
+      continue
+    }
     const anchor = {}
     if (typeof entry.path === 'string') anchor.path = entry.path
     if (typeof entry.source === 'string') anchor.source = entry.source

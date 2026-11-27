@@ -969,6 +969,7 @@ button.loom-role-summary:hover { background: var(--dsw-alias-bg-multi-select, rg
       const [roleGraphSaving, setRoleGraphSaving] = useState(false)
       const [detail, setDetail] = useState({ status: 'idle' })
       const [selectedSkill, setSelectedSkill] = useState(undefined)
+      const [retirementTarget, setRetirementTarget] = useState(undefined)
       const [insertedFamily, setInsertedFamily] = useState(undefined)
       useEffect(() => {
         if (!insertedFamily) return undefined
@@ -1956,6 +1957,11 @@ button.loom-role-summary:hover { background: var(--dsw-alias-bg-multi-select, rg
           onCancel: () => setRoleSwitchTarget(undefined),
         }),
         h('style', { key: 'loom-css' }, MENU_CSS),
+        retirementTarget && h(SkillRetirementDialog, {
+          key: retirementTarget, name: retirementTarget,
+          onClose: () => setRetirementTarget(undefined),
+          onChanged: () => { setRetirementTarget(undefined); void loadList() },
+        }),
         dragCard && h('div', {
           key: 'drag-card', className: 'loom-drag-card', 'aria-hidden': true,
           style: { left: dragCard.left, top: dragCard.top, width: dragCard.width, height: dragCard.height },
@@ -2109,10 +2115,11 @@ button.loom-role-summary:hover { background: var(--dsw-alias-bg-multi-select, rg
                   ...bindLibraryDrag({ name: skill.name, color: stateColor }, () => {
                     if (familyDraft) setDraftSelection(skill.name)
                     else setSelectedSkill(skill.name)
-                  }, familyDraft ? draftSaving : pending || !roleReady),
+                  }, skill.retired || (familyDraft ? draftSaving : pending || !roleReady)),
                   onKeyDown: event => {
                     if (event.key !== 'Enter' && event.key !== ' ') return
                     event.preventDefault()
+                    if (skill.retired) { setRetirementTarget(skill.name); return }
                     if (familyDraft) {
                       linkDraft(skill.name, '__role__')
                       setDraftSelection(skill.name)
@@ -2121,6 +2128,16 @@ button.loom-role-summary:hover { background: var(--dsw-alias-bg-multi-select, rg
                 }, [
                   h('span', { key: 'status', style: styles.dot(stateColor) }),
                   h('span', { key: 'n', className: 'loom-card-name' }, skill.name),
+                  skill.retired && h('span', { key: 'retired', className: 'loom-card-info' }, t('已退役', 'Retired')),
+                  skill.availability && skill.availability !== 'available' && h('span', { key: 'availability', className: 'loom-card-info' },
+                    skill.availability === 'unknown' ? t('目录状态未知', 'Catalog unknown') : skill.availability === 'missing' ? t('已知文件缺失', 'Known file missing') : t('当前目录不可解析', 'Unresolved in catalog')),
+                  h('button', {
+                    key: 'retirement', type: 'button', className: 'loom-option',
+                    'aria-label': (skill.retired ? t('恢复技能 ', 'Restore skill ') : t('检查退役 ', 'Inspect retirement ')) + skill.name,
+                    onPointerDown: event => event.stopPropagation(),
+                    onKeyDown: event => event.stopPropagation(),
+                    onClick: event => { event.stopPropagation(); libraryHover.hide(); setRetirementTarget(skill.name) },
+                  }, skill.retired ? t('恢复', 'Restore') : t('退役', 'Retire')),
                   shownPlan && h('span', {
                     key: 'm', className: 'loom-card-info loom-skill-state', 'data-member': member,
                   }, member ? t('已纳入', 'Included') : t('未纳入', 'Excluded')),
@@ -2130,6 +2147,69 @@ button.loom-role-summary:hover { background: var(--dsw-alias-bg-multi-select, rg
           ])
           : null)
     }
+    function SkillRetirementDialog({ name, onClose, onChanged }) {
+      const ref = useRef(null)
+      const [snapshot, setSnapshot] = useState(undefined)
+      const [error, setError] = useState('')
+      const [pending, setPending] = useState(false)
+      const refresh = async () => {
+        setSnapshot(undefined)
+        setError('')
+        try {
+          const response = await fetch(API + '/skills', { cache: 'no-store' })
+          if (!response.ok) throw new Error(t('无法确认已保存引用，请稍后重试。', 'Saved references could not be verified. Retry later.'))
+          const body = await response.json()
+          const skill = body.skills.find(skill => skill.name === name)
+          if (!skill) throw new Error(t('技能未被识别，请刷新列表。', 'Unknown skill. Refresh the list.'))
+          setSnapshot({ revision: body.revision, skill })
+        } catch (cause) { setError(String(cause.message ?? cause)) }
+      }
+      useEffect(() => {
+        ref.current.showModal()
+        void refresh()
+        return () => ref.current?.close()
+      }, [])
+      const skill = snapshot?.skill
+      const blocked = !skill || skill.protected || (!skill.retired && (skill.references.length > 0 || skill.availability === 'unknown'))
+      const change = async () => {
+        if (pending || blocked) return
+        setPending(true)
+        try {
+          const response = await fetch(API + '/skills', { method: 'POST', headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({ action: skill.retired ? 'restore' : 'retire', name, revision: snapshot.revision, confirm: true }) })
+          const body = await response.json()
+          if (!response.ok) throw new Error(body.message ?? t('操作被拒绝，请刷新检查。', 'Rejected. Refresh and inspect again.'))
+          onChanged()
+        } catch (cause) { setError(String(cause.message ?? cause)); setSnapshot(undefined) }
+        finally { setPending(false) }
+      }
+      return h('dialog', { ref, className: 'loom-confirm-dialog', 'aria-label': t('技能退役与恢复', 'Skill retirement and restoration'),
+        style: { maxHeight: '85vh', overflowY: 'auto' },
+        onCancel: event => { event.preventDefault(); if (!pending) onClose() },
+      }, [
+        h('h2', { key: 'title', style: styles.h2 }, name),
+        h('p', { key: 'scope' }, t('仅影响 Loom。不会删除 SKILL.md、卸载提供者或修改 DSH 与其他应用。退役后可从技能列表恢复；恢复不保证缺失技能重新可用。', 'Loom only: no SKILL.md deletion, provider uninstall or DSH/other-app changes. Restore from the skill list; restoration does not make a missing skill available.')),
+        skill && h('p', { key: 'state' }, (skill.retired ? t('已退役', 'Retired') : t('未退役', 'Not retired')) + ' · ' +
+          (skill.availability === 'available' ? t('目录可用', 'Available in catalog') : skill.availability === 'unknown' ? t('目录状态未知', 'Catalog unknown') : skill.availability === 'missing' ? t('已知文件缺失', 'Known file missing') : t('当前目录不可解析', 'Unresolved in catalog'))),
+        skill?.protected && h('p', { key: 'protected' }, t('内置管理技能不可退役。', 'Built-in management skills cannot be retired.')),
+        !!skill?.references.length && h('div', { key: 'refs' }, [
+          h('p', { key: 'instruction' }, t('以下已保存引用阻止退役。请到对应图显式清理依赖并保存；仅修改草稿不算清理。', 'These saved references block retirement. Explicitly clean dependencies in each graph and save; draft edits do not count.')),
+          ...skill.references.map(reference => h('div', { key: reference.kind + reference.id, style: styles.section }, [
+            h('strong', { key: 'name' }, kindName(reference.kind) + ' · ' + reference.name),
+            ...reference.paths.map((path, i) => h('p', { key: i }, path.join(' → '))),
+            ...(reference.conflicts ?? []).map((pair, i) => h('p', { key: 'conflict-' + i }, t('冲突约束：', 'Conflict constraint: ') + pair.join(' ↔ '))),
+          ])),
+        ]),
+        error && h('p', { key: 'error', role: 'alert', style: styles.error }, error),
+        h('div', { key: 'actions', className: 'loom-confirm-actions' }, [
+          h('button', { key: 'close', type: 'button', disabled: pending, onClick: onClose }, t('取消', 'Cancel')),
+          h('button', { key: 'refresh', type: 'button', disabled: pending, onClick: () => void refresh() }, t('刷新检查', 'Refresh check')),
+          h('button', { key: 'confirm', type: 'button', disabled: pending || blocked, onClick: () => void change() },
+            skill?.retired ? t('确认恢复', 'Confirm restore') : t('确认退役', 'Confirm retirement')),
+        ]),
+      ])
+    }
+
     function LibrarySearch({ query, setQuery, label }) {
       return h('div', { className: 'loom-search' }, [
         h('svg', { key: 'icon', width: 15, height: 15, viewBox: '0 0 16 16', 'aria-hidden': true,

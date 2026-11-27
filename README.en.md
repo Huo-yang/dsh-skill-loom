@@ -42,6 +42,18 @@ Restart DSH Web if it is already running, then open Skill Loom from the left nav
 3. **Save and bind.** Graph changes stay in a draft with undo and redo until you save. Choose a role next to the composer when starting a DSH conversation. Once it starts, use the session header to see the active role, switch it, or restore the default. Switching is unavailable while the session is running. The role description appears in the UI. The persona you set in the upper-right canvas controls is injected into bound sessions.
 4. **Inspect health.** Hover over a skill in the library to see its description and source, even before selecting a role. An empty source is shown as “Unknown”. Dependencies and membership appear once the current role or ability-family draft has a graph and plan ready. Red indicates a missing skill. Gray indicates a skill directly or indirectly blocked by a missing dependency.
 
+### Safe skill retirement (Loom only)
+
+The skill list's **Retire** action inspects every saved role and ability family, including built-in presets, dependency edges and conflict constraints. It shows names and dependency paths and refuses retirement while any reference remains. Explicitly edit the relevant graphs and save, then refresh and confirm. Draft-only cleanup, a missing catalog entry or a stale frontend cannot bypass this check. Referenced names that disappeared from the catalog remain inspectable.
+
+Retirement never deletes `SKILL.md`, uninstalls providers or changes DSH/other applications. It prevents Loom from saving references to that exact skill name. Restore from the list before referencing it again; restoration does not make a missing skill available. Names span all same-name providers/scopes and remain retired when files reappear. The two bundled management skills cannot be retired. Reading, inspection and cleanup proposals do not write files.
+
+`skill_retirement` supports `help/list/inspect/propose/retire/restore`. Writes require explicit user intent, `confirm=true` and a fresh snapshot `revision`. UI and tools share validation. Copying, applying families, import-like saves and undo/redo cannot reintroduce retired references; rejected history restoration does not consume the stack. Missing anchors and red/gray dependency diagnostics are preserved on save.
+
+`skill-retirement.json` in the roles directory stores flags and minimal known-skill metadata, never skill bodies. Read-only observations stay in memory. Successful explicit graph saves/deletions and retirement/restoration persist known names so they remain actionable after reference cleanup and catalog disappearance. Read-only observations of subsequently vanished, never-saved names are not guaranteed across restart; arbitrary unseen names cannot be enrolled.
+
+All Loom graph writes and retirement share a directory lock and recheck the saved snapshot. Busy locks, corrupt/unreadable graphs or retirement state fail closed. Crash-left `.skill-loom-write-lock` directories are not stolen automatically; first verify that no writer is active before manual handling. No automatic data repair is performed. External JSON edits or older processes ignoring this lock are outside the concurrency guarantee. Filesystem failure may commit a graph before known metadata is updated; reread actual saved state rather than blindly retrying.
+
 ### Let DSH edit the graph
 
 Create a role, drop the built-in orchestration family onto its root and save. Start a conversation with that role, then describe the role or family you want DSH to build.
@@ -88,3 +100,5 @@ Restart DSH Web to apply the change. Uninstalling preserves roles, ability famil
 ## License
 
 Released under the [MIT license](LICENSE).
+
+Role creation through `role_graph` and the Web API accepts an optional `description`, with the same whitespace normalization and 160-character limit as editing. Omission does not generate a summary. Lists, details and reloads preserve it. Retirement distinguishes unknown discovery, unresolved catalog entries, verified missing files and the independent retired state. Cleanup previews report removed edges and conflict constraints: removing B changes the meaning of A→B, so explicitly approve and save graph changes before separately confirming retirement.

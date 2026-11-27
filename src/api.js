@@ -38,6 +38,22 @@ export class RoleGraphError extends Error {
   }
 }
 
+function descriptionValue(value) {
+  if (typeof value !== 'string') throw new RoleGraphError('INVALID_DESCRIPTION', '简介必须是文本')
+  const text = value.trim().replace(/\s+/g, ' ')
+  if (text.length > 160) throw new RoleGraphError('INVALID_DESCRIPTION', '简介最多 160 个字符')
+  return text
+}
+
+// Explicit member removal also removes incident requires edges. Share the
+// exact transform between the read-only preview and the authorized write.
+export function removeMembers(graph, names) {
+  const drop = new Set(names)
+  return { ...graph, members: (graph.members ?? []).filter(name => !drop.has(name)),
+    edges: (graph.edges ?? []).filter(edge => !drop.has(edge.from) && !drop.has(edge.to)),
+    conflicts: (graph.conflicts ?? []).filter(pair => !pair.some(name => drop.has(name))) }
+}
+
 const ACTIONS = [
   'help', 'list', 'show', 'plan',
   'create', 'set_name', 'set_description', 'set_persona',
@@ -49,6 +65,9 @@ const HELP = {
   actions: ACTIONS,
   notes: [
     'role accepts a role UUID or its display name.',
+    'create accepts an optional description; create/set_description normalize whitespace and allow at most 160 characters. Omission never generates a description.',
+    'plan remove previews the same member and incident-edge removal as remove_members. Review removedEdges and removedConflicts before confirming: removal also drops incident conflict constraints.',
+    'For reviewed edits, pass expectedRevision from show.role.revision or plan.draft.revision; stale saves are rejected.',
     'plan computes without writing; create/set_*/add_members/remove_members/link/unlink/duplicate write.',
     'Agent-created edges must carry a why (<= 80 chars).',
     'A save fills members with the whole requires closure and records skill anchors.',
@@ -107,6 +126,7 @@ export function createRoleGraphApi(deps) {
     return {
       id: role.id,
       name: role.name,
+      description: role.description,
       members: role.members?.length ?? 0,
       runtime: plan.runtime.length,
       red: plan.red,
@@ -178,15 +198,14 @@ export function createRoleGraphApi(deps) {
       const base = input.role === undefined
         ? { id: generateId(), name: 'draft', members: [], edges: [], conflicts: [] }
         : await load(input.role)
-      const draft = {
+      let draft = {
         ...base,
         ...(Array.isArray(input.add) ? { members: [...new Set([...(base.members ?? []), ...input.add])] } : {}),
-        ...(Array.isArray(input.remove)
-          ? { members: (base.members ?? []).filter(name => !input.remove.includes(name)) }
-          : {}),
       }
+      if (Array.isArray(input.remove)) draft = removeMembers(draft, input.remove)
+      const removedEdges = (base.edges ?? []).filter(edge => !draft.edges.includes(edge))
       const plan = planRole(draft, repo, { exists })
-      return { ok: true, action, result: { ...plan, missing: explainMissing(draft, repo, exists) } }
+      return { ok: true, action, result: { ...plan, draft, removedEdges, removedConflicts: (base.conflicts ?? []).filter(pair => !(draft.conflicts ?? []).includes(pair)), missing: explainMissing(draft, repo, exists) } }
     }
 
     const repo = await repository(context)
@@ -208,6 +227,10 @@ export function createRoleGraphApi(deps) {
         members: Array.isArray(input.add) ? [...new Set(input.add)] : [],
         edges: [],
         conflicts: [],
+      }
+      if (input.description !== undefined) {
+        const description = descriptionValue(input.description)
+        if (description) role.description = description
       }
       if (role.persona === undefined) delete role.persona
       const saved = await persist(role, repo)
@@ -239,9 +262,7 @@ export function createRoleGraphApi(deps) {
         break
       }
       case 'set_description': {
-        if (typeof input.description !== 'string') throw new RoleGraphError('INVALID_DESCRIPTION', '简介必须是文本')
-        const description = input.description.trim().replace(/\s+/g, ' ')
-        if (description.length > 160) throw new RoleGraphError('INVALID_DESCRIPTION', '简介最多 160 个字符')
+        const description = descriptionValue(input.description)
         if (description) next.description = description
         else delete next.description
         break
@@ -270,9 +291,7 @@ export function createRoleGraphApi(deps) {
         if (!Array.isArray(input.remove) || input.remove.length === 0) {
           throw new RoleGraphError('INVALID_MEMBERS', 'remove_members needs a non-empty "remove" array')
         }
-        const drop = new Set(input.remove)
-        next.members = (next.members ?? []).filter(name => !drop.has(name))
-        next.edges = (next.edges ?? []).filter(edge => !drop.has(edge.from) && !drop.has(edge.to))
+        next = removeMembers(next, input.remove)
         break
       }
       case 'reparent': {
@@ -342,7 +361,7 @@ export function createRoleGraphApi(deps) {
     }
 
     const saved = await persist(next, repo, {
-      expectedRevision: context.expectedRevision, source: context.source,
+      expectedRevision: context.expectedRevision ?? (action === 'duplicate' ? 0 : current.revision), source: context.source,
       preview: action === 'set_graph' && input.preview === true,
     })
     return { ok: true, action, result: saved }

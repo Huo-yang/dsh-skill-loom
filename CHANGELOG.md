@@ -1,5 +1,16 @@
 # 更新记录 / Changelog
 
+## 未发布 / Unreleased
+
+- 修复工具与 Web 创建角色时可选简介被丢弃：统一校验，持久化并在列表及详情回读。
+- 删除技能预览与提交共用变换，并明确展示待删除依赖边及冲突约束。
+- Preserve optional descriptions through tool/Web role creation and readback; align removal previews with committed edge/conflict changes.
+
+- 新增仅影响 Loom 的技能退役与恢复：已保存角色／能力族引用阻止退役，显示依赖路径，列表与模型工具共用校验。
+- 图写入与退役共享锁；旧快照与重新引入退役引用的保存被拒绝。保留缺失 anchors、已知技能元数据及独立的目录可用性诊断。
+- 两份配套 Skill 新增只读检查、清理提议及明确授权后的退役／恢复流程。
+- Added Loom-only skill retirement/restoration with saved-reference checks, dependency paths, shared UI/tool validation, guarded writes, missing-anchor preservation and updated orchestration/review skills.
+
 ## 0.1.4
 
 - 技能库悬停始终提供简介与来源，不再要求角色画布；图和计划就绪后才显示纳入状态及依赖关系。

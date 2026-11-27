@@ -86,7 +86,7 @@ function summarize(role, repo, exists) {
  * @param {(input: object) => Promise<object>} [deps.mutate] - action dispatch (agent action layer).
  * @returns {(request: Request) => Promise<Response>} the resource.
  */
-export function createResource({ store, catalog, exists, mutate, sessions, history, families }) {
+export function createResource({ store, catalog, exists, mutate, sessions, history, families, retirement }) {
   async function readBody(request) {
     const declared = Number(request.headers.get('content-length') ?? '0')
     if (Number.isFinite(declared) && declared > MAX_BODY_BYTES) return { tooLarge: true }
@@ -114,7 +114,7 @@ export function createResource({ store, catalog, exists, mutate, sessions, histo
       }
       if (error?.name === 'RoleGraphError' || error?.name === 'RoleValidationError') {
         const details = error.details?.issues?.map(issue => issue.message).join('；')
-        return json({ error: 'rejected', code: error.code, message: details || error.message }, 400)
+        return json({ error: 'rejected', code: error.code, message: details || error.message, details: error.details }, 400)
       }
       throw error
     }
@@ -185,6 +185,11 @@ export function createResource({ store, catalog, exists, mutate, sessions, histo
     const rest = path.slice(ROUTE_PREFIX.length).replace(/^\//, '')
 
     try {
+      if (rest === 'skills') {
+        if (!retirement) return json({ error: 'unavailable' }, 404)
+        if (method === 'POST') return await writeFamily(request, retirement.handle)
+        return json(await retirement.list())
+      }
       if (rest === 'families') {
         if (families === undefined) return json({ error: 'families-unavailable' }, 404)
         if (method === 'POST') return await writeFamily(request, families.change)
@@ -205,7 +210,10 @@ export function createResource({ store, catalog, exists, mutate, sessions, histo
         const role = decodeURIComponent(familyInsert[1])
         return await writeFamily(request, input => families.insert({ ...input, role }))
       }
-      const repo = await catalog()
+      const repo = await catalog().catch(error => {
+        if (retirement && (rest === '' || rest === 'roles')) return new Map()
+        throw error
+      })
 
       if (rest === '' || rest === 'roles') {
         if (method === 'POST') {
@@ -219,6 +227,7 @@ export function createResource({ store, catalog, exists, mutate, sessions, histo
           const outcome = await mutate({
             action: 'create',
             name,
+            description: body.value.description,
             add: Array.isArray(body.value.add) ? body.value.add : undefined,
           })
           return json({ ok: true, role: outcome.result.role, plan: outcome.result.plan })
@@ -229,7 +238,7 @@ export function createResource({ store, catalog, exists, mutate, sessions, histo
           // from one that accepts writes.
           writable: typeof mutate === 'function',
           roles: roles.map(role => summarize(role, repo, exists)),
-          skills: [...repo.values()].map(skill => ({
+          skills: (retirement ? (await retirement.list()).skills : [...repo.values()]).map(skill => ({
             name: skill.name,
             description: skill.description,
             source: skill.source,
@@ -237,6 +246,7 @@ export function createResource({ store, catalog, exists, mutate, sessions, histo
             // Only used to hand the file to the sidebar's viewer; the page never
             // reads it and no write path accepts it back.
             path: skill.path,
+            retired: skill.retired, availability: skill.availability,
           })),
         })
       }
@@ -373,6 +383,9 @@ export function createResource({ store, catalog, exists, mutate, sessions, histo
       }
       if (error?.code === 'SESSION_BUSY') return json({ error: 'session-busy' }, 409)
       if (error?.code === 'ROLE_NOT_FOUND') return json({ error: 'role-not-found' }, 404)
+      if (error?.name === 'RoleGraphError' || error?.name === 'RoleValidationError') {
+        return json({ error: 'rejected', code: error.code, message: error.message, details: error.details }, 400)
+      }
       return json({ error: 'internal', message: String(error?.message ?? error) }, 500)
     }
   }

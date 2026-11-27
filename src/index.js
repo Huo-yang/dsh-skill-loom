@@ -38,7 +38,8 @@ import { ROUTE_PREFIX, createResource, toNodeHandler } from './http.js'
 import { createOverrideRegistry, resolveCreatedRole } from './spawn.js'
 import { RoleConflictError, RoleStore } from './store.js'
 import { createHistory } from './history.js'
-import { createFamilyLibrary, mergeFamily } from './families.js'
+import { createFamilyLibrary, mergeFamily, PRESETS } from './families.js'
+import { createRetirement } from './retirement.js'
 
 /** Cordis plugin name. */
 export const name = 'skill-loom'
@@ -58,9 +59,10 @@ const PARAMETERS = {
     description: 'help | list | show | plan | create | set_name | set_description | set_persona | add_members | remove_members | link | unlink | reparent | duplicate | bind | unbind',
   },
   role: { type: 'string', description: 'Role UUID or display name.' },
+  expectedRevision: { type: 'number', description: 'Saved role revision from show or plan.draft; pass when committing a reviewed edit to reject stale requests.' },
   name: { type: 'string', description: 'Display name (create, set_name, duplicate). Any script, <= 64 chars.' },
   persona: { type: 'string', description: 'Persona prefix for set_persona / create.' },
-  description: { type: 'string', description: 'Short role description displayed in the UI (set_description, <= 160 chars).' },
+  description: { type: 'string', description: 'Short role description displayed in the UI (create/set_description, <= 160 chars; optional on create).' },
   add: { type: 'array', items: { type: 'string' }, description: 'Skill names to add (add_members, plan).' },
   remove: { type: 'array', items: { type: 'string' }, description: 'Skill names to remove (remove_members, plan).' },
   from: { type: 'string', description: 'Requiring skill (link, unlink, reparent).' },
@@ -103,7 +105,17 @@ function loadBundledSkill(file) {
 export function apply(ctx, config = {}) {
   const rolesDir = config.rolesDir ?? defaultRolesDir()
   const store = new RoleStore(rolesDir)
-  const families = createFamilyLibrary(new RoleStore(join(rolesDir, 'families')), store)
+  const familyStore = new RoleStore(join(rolesDir, 'families'))
+  const families = createFamilyLibrary(familyStore, store)
+  const retirement = createRetirement({ directory: rolesDir,
+    stores: [{ kind: 'role', store }, { kind: 'family', store: familyStore }], builtins: PRESETS,
+    catalog: async () => {
+      let incomplete = false
+      const repo = await buildCatalog({ list: options => ctx.skills.list(options), agents: ctx.agents.list(), onError: () => { incomplete = true } })
+      if (incomplete) throw new Error('Incomplete skill catalog')
+      return repo
+    },
+  })
   for (const entry of BUNDLED_SKILLS) {
     const skill = loadBundledSkill(fileURLToPath(new URL(entry.file, import.meta.url)))
     ctx.skills.register({
@@ -137,7 +149,7 @@ export function apply(ctx, config = {}) {
       const role = await store.read(id)
       if (role === undefined) return false
       checkRevision(role, expectedRevision)
-      if (!await store.remove(id)) return false
+      if (!await store.remove(id, { expectedRevision: role.revision })) return false
       history.forget(id)
       for (const [sessionId, generation] of generations) {
         if (generation.config.role.id === id) disposeSession(sessionId)
@@ -390,6 +402,7 @@ export function apply(ctx, config = {}) {
           cwd,
           agent,
           sessionId,
+          expectedRevision: args.expectedRevision,
           bindSession: async role => {
             if (sessionId === undefined) {
               throw new RoleGraphError('NO_SESSION', 'this tool call has no session to bind')
@@ -432,6 +445,18 @@ export function apply(ctx, config = {}) {
     schema: { type: 'object', additionalProperties: true },
     render: (_args, value) => [{ type: 'text', text: JSON.stringify(value, null, 2) }],
   }
+  ctx.tools.register(defineTool({
+    name: 'skill_retirement',
+    description: 'Inspect Loom skill status/references, propose manual graph cleanup, or explicitly retire/restore a skill in Loom only. Never deletes provider files. Saved references block retirement; restore before referencing again.',
+    parameters: {
+      action: { type: 'string', required: true, description: 'help | list | inspect | propose | retire | restore. First four are read-only.' },
+      name: { type: 'string', description: 'Exact observed skill name, shared across same-name providers/scopes.' },
+      revision: { type: 'string', description: 'Latest snapshot revision from list/inspect; required for retire/restore.' },
+      confirm: { type: 'boolean', description: 'True only after the user explicitly requests this retirement/restoration.' },
+    },
+    output: graphToolsOutput,
+    execute: input => serialize(() => retirement.handle(input)),
+  }))
   ctx.tools.register(defineTool({
     name: 'role_family',
     description: 'List, inspect, create, update, or apply reusable Skill Loom ability families.',
@@ -561,6 +586,7 @@ export function apply(ctx, config = {}) {
     path: ROUTE_PREFIX,
     // A handler, not a resource: resource routes answer GET/HEAD only.
     handler: toNodeHandler(createResource({
+      retirement: { list: retirement.list, handle: input => serialize(() => retirement.handle(input)) },
       store: trackedStore,
       mutate: input => serialize(() => api.handle(input, { expectedRevision: input.expectedRevision, source: 'human' })),
       families: {
